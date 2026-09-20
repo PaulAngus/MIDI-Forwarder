@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>MidiForwarder.Client</AssemblyName>
+    <ApplicationIcon>../../assets/midi-forwarder.ico</ApplicationIcon>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <PublishDir>../../publish/client/</PublishDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../MidiForwarder.Core/MidiForwarder.Core.csproj" />
+    <ProjectReference Include="../MidiForwarder.Midi.WinMM/MidiForwarder.Midi.WinMM.csproj" />
+    <ProjectReference Include="../MidiForwarder.Midi.WindowsServices/MidiForwarder.Midi.WindowsServices.csproj" />
+    <PackageReference Include="Avalonia" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3" />
+    <AvaloniaResource Include="../../assets/midi-forwarder.ico" Link="Assets/midi-forwarder.ico" />
+  </ItemGroup>
+</Project>

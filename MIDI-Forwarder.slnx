@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="src/MidiForwarder.Core/MidiForwarder.Core.csproj" />
+  <Project Path="src/MidiForwarder.Midi.WinMM/MidiForwarder.Midi.WinMM.csproj" />
+  <Project Path="src/MidiForwarder.Midi.WindowsServices/MidiForwarder.Midi.WindowsServices.csproj" />
+  <Project Path="src/MidiForwarder.Server/MidiForwarder.Server.csproj" />
+  <Project Path="src/MidiForwarder.Client/MidiForwarder.Client.csproj" />
+  <Project Path="tests/MidiForwarder.Core.Tests/MidiForwarder.Core.Tests.csproj" />
+</Solution>
