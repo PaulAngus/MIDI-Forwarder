@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using MidiForwarder.Core;
-using MidiForwarder.Midi.WinMM;
+using MidiForwarder.Midi.WindowsServices;
 
 namespace MidiForwarder.Server;
 
@@ -12,7 +12,6 @@ public sealed class ServerRelayService : IAsyncDisposable
     private TcpListener? _listener;
     private Task? _clientTask;
     private Task? _runTask;
-    private WinMmDuplexPort? _midi;
 
     public event EventHandler<string>? LogMessage;
 
@@ -30,18 +29,15 @@ public sealed class ServerRelayService : IAsyncDisposable
         Validate(settings);
         Uri listenUri = TcpEndpoint.Parse(settings.ListenUrl);
         IPAddress listenAddress = TcpEndpoint.ParseListenAddress(listenUri.Host);
-        WinMmDuplexPort midi = WinMmDuplexPort.Open(settings.InputPort, settings.OutputPort);
         var listener = new TcpListener(listenAddress, listenUri.Port);
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         try
         {
             listener.Start(1);
-            _midi = midi;
             _listener = listener;
             _cancellation = cancellation;
-            _runTask = AcceptClientsAsync(listener, settings.Token, midi, cancellation.Token);
-            WriteLog($"Physical MIDI opened: {midi.InputName} / {midi.OutputName}");
+            _runTask = AcceptClientsAsync(listener, settings.Token, settings.MidiEndpoint, cancellation.Token);
             SetStatus($"Listening on {settings.ListenUrl}");
             return Task.CompletedTask;
         }
@@ -49,7 +45,6 @@ public sealed class ServerRelayService : IAsyncDisposable
         {
             listener.Stop();
             cancellation.Dispose();
-            midi.DisposeAsync().AsTask().GetAwaiter().GetResult();
             throw;
         }
     }
@@ -59,7 +54,6 @@ public sealed class ServerRelayService : IAsyncDisposable
         CancellationTokenSource? cancellation = Interlocked.Exchange(ref _cancellation, null);
         TcpListener? listener = Interlocked.Exchange(ref _listener, null);
         Task? runTask = Interlocked.Exchange(ref _runTask, null);
-        WinMmDuplexPort? midi = Interlocked.Exchange(ref _midi, null);
 
         if (cancellation is not null)
         {
@@ -94,11 +88,6 @@ public sealed class ServerRelayService : IAsyncDisposable
             cancellation.Dispose();
         }
 
-        if (midi is not null)
-        {
-            await midi.DisposeAsync().ConfigureAwait(false);
-        }
-
         SetStatus("Stopped");
     }
 
@@ -111,7 +100,7 @@ public sealed class ServerRelayService : IAsyncDisposable
     private async Task AcceptClientsAsync(
         TcpListener listener,
         string token,
-        WinMmDuplexPort midi,
+        string midiEndpoint,
         CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -123,18 +112,19 @@ public sealed class ServerRelayService : IAsyncDisposable
                 continue;
             }
 
-            _clientTask = HandleClientAsync(client, token, midi, cancellationToken);
+            _clientTask = HandleClientAsync(client, token, midiEndpoint, cancellationToken);
         }
     }
 
     private async Task HandleClientAsync(
         TcpClient client,
         string token,
-        WinMmDuplexPort midi,
+        string midiEndpoint,
         CancellationToken cancellationToken)
     {
         using (client)
         {
+            PhysicalMidiEndpointDuplexPort? midi = null;
             try
             {
                 client.NoDelay = true;
@@ -154,6 +144,11 @@ public sealed class ServerRelayService : IAsyncDisposable
 
                 WriteLog($"Client connected: {client.Client.RemoteEndPoint}");
                 SetStatus("Client connected");
+
+                // Windows MIDI Services shares the endpoint with other applications (e.g. the
+                // device's own editor), so it can stay connected only for as long as needed.
+                midi = PhysicalMidiEndpointDuplexPort.Open(midiEndpoint);
+                WriteLog($"Connected to MIDI endpoint: {midi.EndpointName}");
                 await TcpMidiBridge.RunAsync(stream, midi, null, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -163,12 +158,18 @@ public sealed class ServerRelayService : IAsyncDisposable
             {
                 WriteLog($"Client connection ended: {error.Message}");
             }
-            catch (Exception error) when (error is IOException or SocketException or EndOfStreamException)
+            catch (Exception error) when (error is IOException or SocketException or EndOfStreamException or InvalidOperationException)
             {
                 WriteLog($"Client connection ended: {error.Message}");
             }
             finally
             {
+                if (midi is not null)
+                {
+                    await midi.DisposeAsync().ConfigureAwait(false);
+                    WriteLog("MIDI endpoint connection released.");
+                }
+
                 _clientGate.Release();
                 if (IsRunning)
                 {
@@ -182,7 +183,12 @@ public sealed class ServerRelayService : IAsyncDisposable
     {
         if (!settings.IsComplete)
         {
-            throw new InvalidOperationException("Select both physical MIDI ports and enter a valid TCP listen address.");
+            throw new InvalidOperationException("Select a physical MIDI endpoint and enter a valid TCP listen address.");
+        }
+
+        if (!PhysicalMidiEndpointCatalog.GetNames().Contains(settings.MidiEndpoint, StringComparer.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"MIDI endpoint not found: {settings.MidiEndpoint}");
         }
 
         Uri uri = TcpEndpoint.Parse(settings.ListenUrl);

@@ -4,6 +4,7 @@ using Avalonia.Layout;
 using Avalonia.Threading;
 using MidiForwarder.Core;
 using MidiForwarder.Midi.WinMM;
+using MidiForwarder.Midi.WindowsServices;
 using System.Diagnostics.CodeAnalysis;
 
 namespace MidiForwarder.Server;
@@ -13,8 +14,7 @@ public sealed class ServerWindow : Window
     private const string SettingsFileName = "server.json";
     private const string StartupName = "MIDI Forwarder Server";
     private readonly ServerRelayService _service;
-    private readonly ComboBox _inputPort = new();
-    private readonly ComboBox _outputPort = new();
+    private readonly ComboBox _midiEndpoint = new();
     private readonly TextBox _listenUrl = new();
     private readonly TextBox _token = new();
     private readonly CheckBox _startWithWindows = new() { Content = "Start automatically with Windows" };
@@ -93,15 +93,14 @@ public sealed class ServerWindow : Window
             ColumnDefinitions = new ColumnDefinitions("170,*"),
             RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto"),
         };
-        AddField(form, 0, "Physical MIDI input", _inputPort);
-        AddField(form, 1, "Physical MIDI output", _outputPort);
-        AddField(form, 2, "TCP listen address", _listenUrl);
-        AddField(form, 3, "Shared token", _token);
-        Grid.SetRow(_startWithWindows, 4);
+        AddField(form, 0, "Physical MIDI endpoint", _midiEndpoint);
+        AddField(form, 1, "TCP listen address", _listenUrl);
+        AddField(form, 2, "Shared token", _token);
+        Grid.SetRow(_startWithWindows, 3);
         Grid.SetColumn(_startWithWindows, 1);
         form.Children.Add(_startWithWindows);
 
-        var refreshButton = new Button { Content = "Refresh MIDI Ports" };
+        var refreshButton = new Button { Content = "Refresh MIDI Endpoints" };
         refreshButton.Click += (_, _) => RefreshPorts();
         var hideButton = new Button { Content = "Hide to Tray" };
         hideButton.Click += (_, _) => Hide();
@@ -140,8 +139,7 @@ public sealed class ServerWindow : Window
         {
             var settings = new ServerSettings
             {
-                InputPort = GetText(_inputPort),
-                OutputPort = GetText(_outputPort),
+                MidiEndpoint = GetText(_midiEndpoint),
                 ListenUrl = _listenUrl.Text?.Trim() ?? string.Empty,
                 Token = _token.Text ?? string.Empty,
                 StartWithWindows = _startWithWindows.IsChecked == true,
@@ -178,8 +176,7 @@ public sealed class ServerWindow : Window
 
     private void ApplySettings(ServerSettings settings)
     {
-        SetItems(_inputPort, WinMmPortCatalog.GetInputNames(), settings.InputPort);
-        SetItems(_outputPort, WinMmPortCatalog.GetOutputNames(), settings.OutputPort);
+        SetItems(_midiEndpoint, PhysicalMidiEndpointCatalog.GetNames(), settings.MidiEndpoint);
         _listenUrl.Text = UpgradeLegacyListenAddress(settings.ListenUrl);
         _token.Text = settings.Token;
         _startWithWindows.IsChecked = settings.StartWithWindows;
@@ -187,10 +184,8 @@ public sealed class ServerWindow : Window
 
     private void RefreshPorts()
     {
-        string input = GetText(_inputPort);
-        string output = GetText(_outputPort);
-        SetItems(_inputPort, WinMmPortCatalog.GetInputNames(), input);
-        SetItems(_outputPort, WinMmPortCatalog.GetOutputNames(), output);
+        string endpoint = GetText(_midiEndpoint);
+        SetItems(_midiEndpoint, PhysicalMidiEndpointCatalog.GetNames(), endpoint);
     }
 
     private void AppendLog(string message) => Dispatcher.UIThread.Post(() =>

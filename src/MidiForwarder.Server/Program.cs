@@ -1,6 +1,6 @@
 using Avalonia;
 using MidiForwarder.Core;
-using MidiForwarder.Midi.WinMM;
+using MidiForwarder.Midi.WindowsServices;
 
 namespace MidiForwarder.Server;
 
@@ -14,7 +14,7 @@ internal static class Program
             DiagnosticLog.Write("server.log", $"Process starting. Version={typeof(Program).Assembly.GetName().Version}; PID={Environment.ProcessId}");
             if (args.Contains("--list-ports", StringComparer.OrdinalIgnoreCase))
             {
-                WinMmPortCatalog.Print(Console.Out);
+                PhysicalMidiEndpointCatalog.Print(Console.Out);
                 return 0;
             }
 
