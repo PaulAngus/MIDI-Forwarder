@@ -5,4 +5,5 @@ publish/
 *.user
 *.suo
 
-local-packages/
+local-packages/*
+!local-packages/README.md

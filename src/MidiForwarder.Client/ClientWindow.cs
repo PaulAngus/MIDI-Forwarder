@@ -59,10 +59,6 @@ public sealed class ClientWindow : Window
             settings = settings with { ServerUri = UpgradeLegacyServerAddress(settings.ServerUri) };
             ApplySettings(settings);
             await StartAsync(settings).ConfigureAwait(true);
-            if (_service.IsRunning)
-            {
-                Hide();
-            }
         }
         catch (Exception error)
         {

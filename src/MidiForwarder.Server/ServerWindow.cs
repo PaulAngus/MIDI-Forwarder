@@ -60,10 +60,6 @@ public sealed class ServerWindow : Window
             settings = settings with { ListenUrl = UpgradeLegacyListenAddress(settings.ListenUrl) };
             ApplySettings(settings);
             await StartAsync(settings).ConfigureAwait(true);
-            if (_service.IsRunning)
-            {
-                Hide();
-            }
         }
         catch (Exception error)
         {

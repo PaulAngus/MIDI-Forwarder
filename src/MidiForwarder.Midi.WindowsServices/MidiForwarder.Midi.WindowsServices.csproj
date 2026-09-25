@@ -10,12 +10,12 @@
   <ItemGroup>
     <ProjectReference Include="../MidiForwarder.Core/MidiForwarder.Core.csproj" />
     <PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.2.0" PrivateAssets="all" />
-    <PackageReference Include="Windows.Devices.Midi2" Version="0.99.75-devpreview.8" PrivateAssets="all" />
-    <None Include="$(NuGetPackageRoot)windows.devices.midi2\0.99.75-devpreview.8\runtimes\win-x64\native\Windows.Devices.Midi2.dll"
+    <PackageReference Include="Windows.Devices.Midi2" Version="0.99.83-devpreview.9" PrivateAssets="all" />
+    <None Include="$(NuGetPackageRoot)windows.devices.midi2\0.99.83-devpreview.9\runtimes\win-x64\native\Windows.Devices.Midi2.dll"
           Link="Windows.Devices.Midi2.dll"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="$(NuGetPackageRoot)windows.devices.midi2\0.99.75-devpreview.8\runtimes\win-x64\native\Windows.Devices.Midi2.pri"
+    <None Include="$(NuGetPackageRoot)windows.devices.midi2\0.99.83-devpreview.9\runtimes\win-x64\native\Windows.Devices.Midi2.pri"
           Link="Windows.Devices.Midi2.pri"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" />
