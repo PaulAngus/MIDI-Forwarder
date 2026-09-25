@@ -20,7 +20,7 @@ Run the two small Windows desktop applications as a pair:
 
 ```text
 MIDI application
-    <->  MIDI Forwarder (App) virtual input/output
+    <->  MIDI Forwarder virtual input/output
     <->  Client
     <->  authenticated length-prefixed TCP stream
     <->  Server
@@ -80,18 +80,20 @@ closed while another client is relaying.
 ### Client (computer running the MIDI application)
 
 1. Start `MidiForwarder.Client.exe`.
-2. Enter a root name for the virtual interface, such as `MIDI Forwarder`.
-   The root name is limited to 23 characters so the Windows endpoint names fit
+2. Enter a name for the virtual interface, such as `MIDI Forwarder`.
+   The name is limited to 31 characters so the public endpoint name fits
    the WinMM name limit.
 3. Enter the server address, for example
    `tcp://192.168.2.155:5180`.
 4. Enter exactly the same shared token as on the server.
 5. Click **Save and Connect**.
 6. In the local MIDI application, select the generated endpoint
-   `MIDI Forwarder (App)` for both MIDI input and MIDI output.
+   `MIDI Forwarder` for both MIDI input and MIDI output.
 
-The companion `(Relay)` endpoint is private to MIDI Forwarder and should not
-be selected by the application. The client retries a dropped connection with
+The input and output use the configured name without an `(App)` suffix. The
+internal `(Relay)` endpoint does not create WinMM or WinRT MIDI 1.0 ports, so
+it is absent from those applications' input/output selectors.
+The client retries a dropped connection with
 bounded exponential backoff (1, 2, 4, … up to 30 seconds) while keeping the
 virtual endpoint alive.
 
@@ -126,9 +128,13 @@ The client creates a transient Windows MIDI Services loopback association with
 two endpoints:
 
 ```text
-<root> (Relay)  - private side opened by MIDI Forwarder
-<root> (App)    - side exposed to local MIDI applications
+<name> (Relay)  - UMP-only internal side opened by MIDI Forwarder
+<name>          - public MIDI input/output (default: MIDI Forwarder)
 ```
+
+Only the public side creates MIDI 1.0 input/output ports. The Relay side remains
+discoverable through the Windows MIDI Services UMP API and diagnostic tools;
+this is not a system-wide visibility or access restriction.
 
 The association is removed when the client stops normally. If the process is
 killed or the Windows MIDI service crashes, Windows may retain the transient
@@ -151,13 +157,15 @@ Run these commands from a terminal in the published application's directory:
 ```
 
 `--list-ports` prints the WinMM input and output names with their indexes and
-then exits. `--check-virtual-midi` creates a short-lived test endpoint named
-`MIDI Fwd Check`, verifies that both sides are visible through WinMM, removes
-it, and exits with:
+then exits. `--check-virtual-midi` creates a uniquely named short-lived test
+endpoint, checks that WinMM and WinRT MIDI 1.0 each expose only one public input
+and output without suffixes, and tests Program Change and multipart SysEx in
+both directions. It removes the test endpoints on normal completion and exits with:
 
-- `0` when the virtual MIDI path is available and visible;
-- `1` when Windows MIDI Services or endpoint creation fails;
-- `2` when creation succeeds but the endpoint is not visible through WinMM.
+- `0` when visibility and message checks pass;
+- `1` when Windows MIDI Services, endpoint creation, or message checks fail;
+- `2` when the public port names or counts are incorrect;
+- `3` when the MIDI service does not complete the check within 30 seconds.
 
 ## Diagnostics and logs
 
@@ -258,11 +266,15 @@ manually created ports.
 listener status, and token. The server log reports invalid-token/protocol
 rejections; the client status shows the next retry delay.
 
-**The application cannot see `(<root>) (App)`.** Ensure the client is running
-and connected or connecting, choose the `(App)` endpoint rather than `(Relay)`,
+**The application cannot see `MIDI Forwarder`.** Ensure the client is running
+and connected or connecting, choose the configured interface name without a suffix,
 and restart the MIDI application's port enumeration if it cached the old list.
 If a crashed client left a stale endpoint, restart the Windows MIDI service or
 Windows and run the virtual-MIDI check again.
+
+After upgrading from a build that exposed `(App)` and `(Relay)`, exit that old
+client and start the updated client, then reselect `MIDI Forwarder` for input
+and output. A still-running old client will continue to publish its old names.
 
 **A device works locally but not remotely.** Verify that the server's selected
 input is the device-to-PC direction and its selected output is the PC-to-device

@@ -28,17 +28,19 @@ public static class TcpMidiBridge
 
     public static async Task WriteFrameAsync(
         Stream stream,
-        ReadOnlyMemory<byte> message,
+        MidiPacket packet,
         CancellationToken cancellationToken)
     {
-        MidiFrame.Validate(message.Span);
-        byte[] header = new byte[sizeof(int)];
-        BinaryPrimitives.WriteInt32BigEndian(header, message.Length);
+        packet.Validate();
+        ReadOnlyMemory<byte> message = packet.Data;
+        byte[] header = new byte[sizeof(int) + 1];
+        BinaryPrimitives.WriteInt32BigEndian(header, checked(message.Length + 1));
+        header[sizeof(int)] = (byte)packet.Format;
         await stream.WriteAsync(header, cancellationToken).ConfigureAwait(false);
         await stream.WriteAsync(message, cancellationToken).ConfigureAwait(false);
     }
 
-    public static async Task<byte[]?> ReadFrameAsync(Stream stream, CancellationToken cancellationToken)
+    public static async Task<MidiPacket?> ReadFrameAsync(Stream stream, CancellationToken cancellationToken)
     {
         byte[] header = new byte[sizeof(int)];
         if (!await ReadExactlyOrEndAsync(stream, header, cancellationToken).ConfigureAwait(false))
@@ -47,14 +49,14 @@ public static class TcpMidiBridge
         }
 
         int length = BinaryPrimitives.ReadInt32BigEndian(header);
-        if (length <= 0 || length > MidiFrame.MaximumLength)
+        if (length <= 1 || length > MidiFrame.MaximumLength + 1)
         {
             throw new InvalidDataException($"Invalid MIDI frame length: {length}.");
         }
 
-        byte[] message = new byte[length];
-        await stream.ReadExactlyAsync(message, cancellationToken).ConfigureAwait(false);
-        return message;
+        byte[] frame = new byte[length];
+        await stream.ReadExactlyAsync(frame, cancellationToken).ConfigureAwait(false);
+        return new MidiPacket((MidiPacketFormat)frame[0], frame.AsMemory(1));
     }
 
     private static async Task PumpMidiToNetworkAsync(
@@ -63,10 +65,10 @@ public static class TcpMidiBridge
         Action<string>? log,
         CancellationToken cancellationToken)
     {
-        await foreach (ReadOnlyMemory<byte> message in midi.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+        await foreach (MidiPacket packet in midi.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
-            await WriteFrameAsync(stream, message, cancellationToken).ConfigureAwait(false);
-            log?.Invoke($"MIDI -> network: {message.Length} byte(s)");
+            await WriteFrameAsync(stream, packet, cancellationToken).ConfigureAwait(false);
+            log?.Invoke($"MIDI -> network: {packet.Data.Length} byte(s), {packet.Format}");
         }
     }
 
@@ -78,14 +80,14 @@ public static class TcpMidiBridge
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            byte[]? message = await ReadFrameAsync(stream, cancellationToken).ConfigureAwait(false);
-            if (message is null)
+            MidiPacket? packet = await ReadFrameAsync(stream, cancellationToken).ConfigureAwait(false);
+            if (packet is null)
             {
                 return;
             }
 
-            await midi.SendAsync(message, cancellationToken).ConfigureAwait(false);
-            log?.Invoke($"Network -> MIDI: {message.Length} byte(s)");
+            await midi.SendAsync(packet.Value, cancellationToken).ConfigureAwait(false);
+            log?.Invoke($"Network -> MIDI: {packet.Value.Data.Length} byte(s), {packet.Value.Format}");
         }
     }
 

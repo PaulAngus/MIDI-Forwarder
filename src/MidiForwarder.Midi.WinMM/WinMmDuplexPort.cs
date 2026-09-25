@@ -8,7 +8,7 @@ public sealed class WinMmDuplexPort : IMidiDuplexPort
 {
     private readonly WinMmMidiInput _input;
     private readonly MidiOut _output;
-    private readonly Channel<ReadOnlyMemory<byte>> _messages = Channel.CreateUnbounded<ReadOnlyMemory<byte>>(
+    private readonly Channel<MidiPacket> _messages = Channel.CreateUnbounded<MidiPacket>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
     private readonly object _outputLock = new();
     private bool _disposed;
@@ -53,12 +53,18 @@ public sealed class WinMmDuplexPort : IMidiDuplexPort
         }
     }
 
-    public IAsyncEnumerable<ReadOnlyMemory<byte>> ReadAllAsync(CancellationToken cancellationToken) =>
+    public IAsyncEnumerable<MidiPacket> ReadAllAsync(CancellationToken cancellationToken) =>
         _messages.Reader.ReadAllAsync(cancellationToken);
 
-    public ValueTask SendAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken)
+    public ValueTask SendAsync(MidiPacket packet, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (packet.Format != MidiPacketFormat.Midi1)
+        {
+            throw new NotSupportedException("WinMM does not support Universal MIDI Packets.");
+        }
+
+        ReadOnlyMemory<byte> message = packet.Data;
         MidiFrame.Validate(message.Span);
 
         lock (_outputLock)
@@ -92,11 +98,11 @@ public sealed class WinMmDuplexPort : IMidiDuplexPort
         return ValueTask.CompletedTask;
     }
 
-    private static void OnShortMessage(int rawMessage, ChannelWriter<ReadOnlyMemory<byte>> writer)
+    private static void OnShortMessage(int rawMessage, ChannelWriter<MidiPacket> writer)
     {
         try
         {
-            writer.TryWrite(Midi1ShortMessageCodec.Decode(rawMessage));
+            writer.TryWrite(new MidiPacket(MidiPacketFormat.Midi1, Midi1ShortMessageCodec.Decode(rawMessage)));
         }
         catch (InvalidDataException error)
         {
@@ -106,7 +112,7 @@ public sealed class WinMmDuplexPort : IMidiDuplexPort
 
     private void OnShortMessage(int rawMessage) => OnShortMessage(rawMessage, _messages.Writer);
 
-    private void OnSysexMessage(byte[] message) => _messages.Writer.TryWrite(message);
+    private void OnSysexMessage(byte[] message) => _messages.Writer.TryWrite(new MidiPacket(MidiPacketFormat.Midi1, message));
 
     private void OnInputError(Exception error) => _messages.Writer.TryComplete(error);
 

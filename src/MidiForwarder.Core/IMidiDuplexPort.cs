@@ -11,8 +11,8 @@ public interface IMidiDuplexPort : IAsyncDisposable
 
     string OutputName { get; }
 
-    IAsyncEnumerable<ReadOnlyMemory<byte>> ReadAllAsync(CancellationToken cancellationToken);
+    IAsyncEnumerable<MidiPacket> ReadAllAsync(CancellationToken cancellationToken);
 
-    ValueTask SendAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken);
+    ValueTask SendAsync(MidiPacket packet, CancellationToken cancellationToken);
 }
 

@@ -89,7 +89,7 @@ public sealed class ClientWindow : Window
     {
         var help = new TextBlock
         {
-            Text = "The client creates a virtual MIDI input and output named “<interface name> (App)”. Select that same name for MIDI input and output in the local application.",
+            Text = "The client creates one MIDI input and one MIDI output using the interface name below (default: “MIDI Forwarder”). Select that same name for MIDI input and output in your MIDI application.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
         };
         var form = new Grid
