@@ -4,7 +4,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../MidiForwarder.Core/MidiForwarder.Core.csproj" />
-    <PackageReference Include="NAudio" Version="3.0.1" />
+    <PackageReference Include="NAudio.WinMM" Version="3.0.1" />
   </ItemGroup>
 </Project>
 

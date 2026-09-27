@@ -228,9 +228,13 @@ publish\server\MidiForwarder.Server.exe
 publish\client\MidiForwarder.Client.exe
 ```
 
-The projects enable single-file publishing, native-library self-extraction,
-and ReadyToRun for `win-x64`. Build output (`bin`, `obj`, and `publish`) is
-ignored by Git.
+The projects enable compressed single-file publishing and native-library
+self-extraction for `win-x64`. ReadyToRun is disabled to keep executables
+smaller; initial startup can take longer while .NET compiles code. The UI
+references only Avalonia's Windows backend and Skia renderer, and the WinMM
+adapter references `NAudio.WinMM` instead of the full audio/WinForms package.
+The executables still include the .NET runtime and Windows MIDI Services SDK.
+Build output (`bin`, `obj`, and `publish`) is ignored by Git.
 
 ## Repository layout
 

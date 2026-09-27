@@ -7,3 +7,4 @@ publish/
 
 local-packages/*
 !local-packages/README.md
+CopyPublishedEXEs.ps1

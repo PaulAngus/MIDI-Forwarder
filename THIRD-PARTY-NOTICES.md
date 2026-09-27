@@ -2,8 +2,8 @@
 
 MIDI Forwarder uses these packages under their respective licenses:
 
-- Avalonia UI (`Avalonia`, `Avalonia.Desktop`, `Avalonia.Themes.Fluent`), MIT.
-- NAudio, MIT.
+- Avalonia UI (`Avalonia`, `Avalonia.Win32`, `Avalonia.Skia`, `Avalonia.Themes.Fluent`), MIT.
+- NAudio (`NAudio.WinMM` and its core/MIDI dependencies), MIT.
 - Microsoft C#/WinRT, MIT.
 - Windows MIDI Services App SDK preview (`Windows.Devices.Midi2`), MIT.
 - xUnit, Microsoft.NET.Test.Sdk, and coverlet for tests under their published
