@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Threading;
+using Avalonia.Automation;
 using MidiForwarder.Core;
 using MidiForwarder.Midi.WinMM;
 using System.Diagnostics.CodeAnalysis;
@@ -14,6 +15,7 @@ public sealed class ClientWindow : Window
     private const string StartupName = "MIDI Forwarder Client";
     private readonly ClientRelayService _service;
     private readonly TextBox _interfaceName = new();
+    private readonly TextBox _additionalInterfaces = new() { AcceptsReturn = true, Height = 76 };
     private readonly TextBox _serverUri = new();
     private readonly TextBox _token = new();
     private readonly CheckBox _startWithWindows = new() { Content = "Start automatically with Windows" };
@@ -21,15 +23,19 @@ public sealed class ClientWindow : Window
     private readonly TextBox _log = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
     private readonly Button _startButton = new() { Content = "Save and Connect" };
     private readonly Button _stopButton = new() { Content = "Disconnect", IsEnabled = false };
+    private readonly Expander _settingsPanel = new() { Header = "MIDI ports and connection", IsExpanded = true, HorizontalAlignment = HorizontalAlignment.Stretch };
     private bool _allowClose;
+    private readonly bool _preview;
+    private bool _previewRunning;
 
-    public ClientWindow(ClientRelayService service)
+    public ClientWindow(ClientRelayService service, bool preview = false)
     {
         _service = service;
+        _preview = preview;
         Title = "MIDI Forwarder Client";
         Width = 700;
-        Height = 620;
-        MinWidth = 580;
+        Height = 760;
+        MinWidth = 480;
         MinHeight = 500;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Content = BuildContent();
@@ -85,48 +91,47 @@ public sealed class ClientWindow : Window
     {
         var help = new TextBlock
         {
-            Text = "The client creates one MIDI input and one MIDI output using the interface name below (default: “MIDI Forwarder”). Select that same name for MIDI input and output in your MIDI application.",
+            Text = "Use a different virtual MIDI port for each app. Select the same port for that app's MIDI input and output. Each port has its own connection to the server; up to eight ports in total.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
         };
-        var form = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("190,*"),
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto"),
-        };
-        AddField(form, 0, "Virtual MIDI interface", _interfaceName);
-        AddField(form, 1, "Server TCP address", _serverUri);
-        AddField(form, 2, "Shared token", _token);
-        Grid.SetRow(_startWithWindows, 3);
-        Grid.SetColumn(_startWithWindows, 1);
+        var form = new StackPanel { Spacing = 12 };
+        AddField(form, "Virtual MIDI port", _interfaceName);
+        AddField(form, "Additional MIDI ports — one name per line", _additionalInterfaces);
+        AddField(form, "Server TCP address", _serverUri);
+        AddField(form, "Shared token", _token);
         form.Children.Add(_startWithWindows);
+        _settingsPanel.Content = form;
 
         var hideButton = new Button { Content = "Hide to Tray" };
         hideButton.Click += (_, _) => Hide();
-        var buttons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-            Children = { _startButton, _stopButton, hideButton },
-        };
+        var buttons = new WrapPanel { Children = { _startButton, _stopButton } };
+        foreach (Control button in buttons.Children) { button.Margin = new Thickness(0, 0, 8, 6); }
+        var footer = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(0, 16, 0, 0) };
+        footer.Children.Add(buttons); Grid.SetColumn(hideButton, 1); footer.Children.Add(hideButton);
+        hideButton.VerticalAlignment = VerticalAlignment.Top;
+        _status.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
+        _log.Height = 180;
+        AutomationProperties.SetName(_status, "Connection status");
+        AutomationProperties.SetName(_log, "Client activity log");
 
         return new Grid
         {
             Margin = new Thickness(20),
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,*,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,*,Auto"),
             Children =
             {
                 new TextBlock { Text = "MIDI Forwarder Client", FontSize = 24, FontWeight = Avalonia.Media.FontWeight.SemiBold },
-                Place(help, 1),
-                Place(form, 2),
-                Place(new Border
+                Place(new ScrollViewer
                 {
-                    Padding = new Thickness(12),
-                    Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(35, 42, 52)),
-                    CornerRadius = new CornerRadius(5),
-                    Child = _status,
-                }, 3),
-                Place(_log, 4),
-                Place(buttons, 5),
+                    Margin = new Thickness(0, 16, 0, 0),
+                    Content = new StackPanel { Spacing = 20, Children =
+                    {
+                        help, _settingsPanel, _status,
+                        new TextBlock { Text = "If the server reserves another connection, this port waits for access and discards offline traffic. Release the reservation on the server to resume.", TextWrapping = Avalonia.Media.TextWrapping.Wrap },
+                        _log,
+                    } },
+                }, 1),
+                Place(footer, 2),
             },
         };
     }
@@ -142,6 +147,8 @@ public sealed class ClientWindow : Window
                 ServerUri = _serverUri.Text?.Trim() ?? string.Empty,
                 Token = _token.Text ?? string.Empty,
                 StartWithWindows = _startWithWindows.IsChecked == true,
+                AdditionalInterfaceNames = (_additionalInterfaces.Text ?? string.Empty).Split('\n').Select(name => name.Trim())
+                    .Where(name => name.Length > 0).ToArray(),
             };
             JsonSettingsFile.Save(SettingsFileName, settings);
             WindowsStartupRegistration.SetEnabled(StartupName, settings.StartWithWindows);
@@ -179,6 +186,7 @@ public sealed class ClientWindow : Window
         _serverUri.Text = UpgradeLegacyServerAddress(settings.ServerUri);
         _token.Text = settings.Token;
         _startWithWindows.IsChecked = settings.StartWithWindows;
+        _additionalInterfaces.Text = string.Join(Environment.NewLine, settings.AdditionalInterfaceNames ?? []);
     }
 
     private void AppendLog(string message) => Dispatcher.UIThread.Post(() =>
@@ -204,8 +212,23 @@ public sealed class ClientWindow : Window
 
     private void UpdateButtons()
     {
-        _startButton.IsEnabled = !_service.IsRunning;
-        _stopButton.IsEnabled = _service.IsRunning;
+        bool running = _service.IsRunning || (_preview && _previewRunning);
+        _settingsPanel.IsExpanded = !running;
+        _startButton.IsEnabled = !running;
+        _stopButton.IsEnabled = running;
+        _interfaceName.IsEnabled = !running; _additionalInterfaces.IsEnabled = !running;
+        _serverUri.IsEnabled = !running; _token.IsEnabled = !running; _startWithWindows.IsEnabled = !running;
+    }
+
+    public void SetPreviewState(string status, bool running = true)
+    {
+        if (!_preview) { throw new InvalidOperationException("This window is not a preview."); }
+        _previewRunning = running;
+        _additionalInterfaces.Text = "MIDI Editor";
+        _token.Text = "Preview shared token";
+        _status.Text = status;
+        _log.Text = "MIDI Forwarder: connected to server.\nMIDI Editor: device reserved for another connection. Waiting for access; offline MIDI is discarded.";
+        UpdateButtons();
     }
 
     private void OnClosing(object? sender, WindowClosingEventArgs args)
@@ -229,16 +252,11 @@ public sealed class ClientWindow : Window
         return value;
     }
 
-    private static void AddField(Grid grid, int row, string label, Control control)
+    private static void AddField(StackPanel panel, string label, Control control)
     {
-        var text = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center };
-        Grid.SetRow(text, row);
-        Grid.SetRow(control, row);
-        Grid.SetColumn(control, 1);
-        text.Margin = new Thickness(0, 0, 0, 8);
-        control.Margin = new Thickness(0, 0, 0, 8);
-        grid.Children.Add(text);
-        grid.Children.Add(control);
+        AutomationProperties.SetName(control, label);
+        control.HorizontalAlignment = HorizontalAlignment.Stretch;
+        panel.Children.Add(new StackPanel { Spacing = 4, Children = { new TextBlock { Text = label }, control } });
     }
 
     private static T Place<T>(T control, int row) where T : Control

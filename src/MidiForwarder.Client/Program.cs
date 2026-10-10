@@ -111,6 +111,7 @@ internal static class Program
             {
                 MidiPacketFormat.Midi1 => received.Data.ToArray(),
                 MidiPacketFormat.UniversalMidiPacket => UmpMidi1Codec.Decode(received.ToUmpWords(), sysEx),
+                MidiPacketFormat.UniversalMidiPacketBatch => UmpMidi1Codec.DecodeSysEx7Batch(received),
                 _ => throw new IOException("The virtual MIDI interface returned an unsupported packet format."),
             };
             if (actual is not null)

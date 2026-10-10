@@ -10,6 +10,8 @@ public sealed record ServerSettings
 
     public bool StartWithWindows { get; init; }
 
+    public string[] LocalPortNames { get; init; } = ["MIDI Gateway 1", "MIDI Gateway 2"];
+
     public bool IsComplete => !string.IsNullOrWhiteSpace(MidiEndpoint)
         && Uri.TryCreate(ListenUrl, UriKind.Absolute, out Uri? uri)
         && uri.Scheme.Equals("tcp", StringComparison.OrdinalIgnoreCase)

@@ -1,20 +1,17 @@
-using System.Buffers.Binary;
-using System.Threading.Channels;
 using MidiForwarder.Core;
 using Windows.Devices.Midi2;
 using Windows.Devices.Midi2.Transports.Loopback;
 
 namespace MidiForwarder.Midi.WindowsServices;
 
-public sealed class WindowsMidiServicesDuplexPort : IMidiDuplexPort
+public sealed class WindowsMidiServicesDuplexPort : IMidiDuplexPort, IMidiSessionPort, IMidiFlowControlPort
 {
     private const string RelaySuffix = " (Relay)";
     private const int MaximumWinMmPortNameLength = 31;
     private readonly MidiSession _session;
     private readonly MidiEndpointConnection _connection;
     private readonly Guid _associationId;
-    private readonly Channel<MidiPacket> _messages = Channel.CreateUnbounded<MidiPacket>(
-        new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+    private readonly MidiReceiveBuffer _messages = new();
     private readonly object _sendLock = new();
     private bool _disposed;
 
@@ -88,12 +85,13 @@ public sealed class WindowsMidiServicesDuplexPort : IMidiDuplexPort
             associationId = creationResult.CreatedLoopbackEntry.AssociationId;
             connection = session.CreateEndpointConnection(creationResult.CreatedLoopbackEntry.EndpointA.EndpointDeviceId)
                 ?? throw new InvalidOperationException("Windows MIDI Services could not open the relay side of the virtual interface.");
+            var port = new WindowsMidiServicesDuplexPort(applicationName, session, connection, associationId);
             if (!connection.Open())
             {
                 throw new InvalidOperationException("Windows MIDI Services could not activate the relay side of the virtual interface.");
             }
 
-            return new WindowsMidiServicesDuplexPort(applicationName, session, connection, associationId);
+            return port;
         }
         catch
         {
@@ -108,18 +106,23 @@ public sealed class WindowsMidiServicesDuplexPort : IMidiDuplexPort
     }
 
     public IAsyncEnumerable<MidiPacket> ReadAllAsync(CancellationToken cancellationToken) =>
-        _messages.Reader.ReadAllAsync(cancellationToken);
+        _messages.ReadAllAsync(cancellationToken);
+
+    public void BeginSession() => _messages.BeginSession();
+    public void EndSession() => _messages.EndSession();
+    public void SetPaused(bool paused) => _messages.SetPaused(paused);
+    public MidiQueueStatistics ReceiveStatistics => _messages.Statistics;
 
     public ValueTask SendAsync(MidiPacket packet, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         packet.Validate();
-        if (packet.Format == MidiPacketFormat.UniversalMidiPacket)
+        if (packet.Format is MidiPacketFormat.UniversalMidiPacket or MidiPacketFormat.UniversalMidiPacketBatch)
         {
             lock (_sendLock)
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
-                SendUmpPacket(packet.Data.Span);
+                UmpBatchSender.Send(_connection, packet.ToUmpWords());
             }
 
             return ValueTask.CompletedTask;
@@ -135,21 +138,7 @@ public sealed class WindowsMidiServicesDuplexPort : IMidiDuplexPort
         lock (_sendLock)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            foreach (uint[] umpPacket in packets)
-            {
-                MidiSendMessageResults result = umpPacket.Length switch
-                {
-                    1 => _connection.SendSingleMessageWords(0, umpPacket[0]),
-                    2 => _connection.SendSingleMessageWords(0, umpPacket[0], umpPacket[1]),
-                    3 => _connection.SendSingleMessageWords(0, umpPacket[0], umpPacket[1], umpPacket[2]),
-                    4 => _connection.SendSingleMessageWords(0, umpPacket[0], umpPacket[1], umpPacket[2], umpPacket[3]),
-                    _ => throw new InvalidDataException("UMP packet has an unsupported word count."),
-                };
-                if (!MidiEndpointConnection.SendMessageSucceeded(result))
-                {
-                    throw new IOException($"Windows MIDI Services failed to send a message ({result}).");
-                }
-            }
+            UmpBatchSender.Send(_connection, packets.SelectMany(packet => packet).ToArray());
         }
 
         return ValueTask.CompletedTask;
@@ -167,7 +156,7 @@ public sealed class WindowsMidiServicesDuplexPort : IMidiDuplexPort
         _session.DisconnectEndpointConnection(_connection.ConnectionId);
         _session.Dispose();
         TryRemoveLoopback(_associationId);
-        _messages.Writer.TryComplete();
+        _messages.Close();
         return ValueTask.CompletedTask;
     }
 
@@ -177,35 +166,18 @@ public sealed class WindowsMidiServicesDuplexPort : IMidiDuplexPort
         {
             byte wordCount = args.FillWords(out uint word0, out uint word1, out uint word2, out uint word3);
             Span<uint> words = stackalloc uint[4] { word0, word1, word2, word3 };
-            _messages.Writer.TryWrite(MidiPacket.FromUmpWords(words[..wordCount]));
+            _messages.Publish(MidiPacket.FromUmpWords(words[..wordCount]));
         }
         catch (InvalidDataException error)
         {
-            _messages.Writer.TryComplete(error);
-        }
-    }
-
-    private void SendUmpPacket(ReadOnlySpan<byte> umpPacket)
-    {
-        uint word0 = BinaryPrimitives.ReadUInt32BigEndian(umpPacket);
-        MidiSendMessageResults result = umpPacket.Length switch
-        {
-            4 => _connection.SendSingleMessageWords(0, word0),
-            8 => _connection.SendSingleMessageWords(0, word0, BinaryPrimitives.ReadUInt32BigEndian(umpPacket[4..])),
-            12 => _connection.SendSingleMessageWords(0, word0, BinaryPrimitives.ReadUInt32BigEndian(umpPacket[4..]), BinaryPrimitives.ReadUInt32BigEndian(umpPacket[8..])),
-            16 => _connection.SendSingleMessageWords(0, word0, BinaryPrimitives.ReadUInt32BigEndian(umpPacket[4..]), BinaryPrimitives.ReadUInt32BigEndian(umpPacket[8..]), BinaryPrimitives.ReadUInt32BigEndian(umpPacket[12..])),
-            _ => throw new InvalidDataException("UMP packet has an unsupported word count."),
-        };
-        if (!MidiEndpointConnection.SendMessageSucceeded(result))
-        {
-            throw new IOException($"Windows MIDI Services failed to send a message ({result}).");
+            _messages.Fail(error);
         }
     }
 
     private static string ValidateAndNormalizeName(string interfaceName)
     {
         string name = interfaceName.Trim();
-        if (name.Length == 0)
+        if (name.Length == 0 || name.Any(char.IsControl))
         {
             throw new InvalidOperationException("Enter a name for the virtual MIDI interface.");
         }

@@ -1,7 +1,22 @@
+using MidiForwarder.Core;
+
 namespace MidiForwarder.Midi.WindowsServices;
 
 public static class UmpMidi1Codec
 {
+    public static byte[] DecodeSysEx7Batch(MidiPacket packet)
+    {
+        uint[] words = packet.ToUmpWords();
+        using var assembler = new SysEx7Assembler();
+        byte[]? result = null;
+        for (int offset = 0; offset < words.Length; offset += 2)
+        {
+            if (words[offset] >> 28 != 3) { throw new NotSupportedException("MIDI 1.0 cannot receive SysEx8."); }
+            result = Decode(words.AsSpan(offset, 2), assembler) ?? result;
+        }
+        return result ?? throw new InvalidDataException("Incomplete SysEx7 batch.");
+    }
+
     public static IReadOnlyList<uint[]> Encode(ReadOnlySpan<byte> message, byte group = 0)
     {
         MidiForwarder.Core.MidiFrame.Validate(message);

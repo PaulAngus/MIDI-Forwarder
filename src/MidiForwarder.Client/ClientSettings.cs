@@ -9,6 +9,7 @@ public sealed record ClientSettings
     public string Token { get; init; } = string.Empty;
 
     public bool StartWithWindows { get; init; }
+    public string[] AdditionalInterfaceNames { get; init; } = [];
 
     public bool IsComplete => !string.IsNullOrWhiteSpace(InterfaceName)
         && Uri.TryCreate(ServerUri, UriKind.Absolute, out Uri? uri)

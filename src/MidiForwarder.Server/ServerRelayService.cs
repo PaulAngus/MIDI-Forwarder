@@ -1,94 +1,108 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using MidiForwarder.Core;
 using MidiForwarder.Midi.WindowsServices;
 
 namespace MidiForwarder.Server;
 
+public sealed record GatewayState(string? OwnerId, IReadOnlyList<GatewayConnection> Connections, string DirectAccessStatus);
+
 public sealed class ServerRelayService : IAsyncDisposable
 {
-    private readonly SemaphoreSlim _clientGate = new(1, 1);
+    private readonly SemaphoreSlim _clientGate = new(8, 8);
+    private readonly ConcurrentDictionary<long, Task> _clients = new();
     private CancellationTokenSource? _cancellation;
     private TcpListener? _listener;
-    private Task? _clientTask;
-    private Task? _runTask;
+    private Task? _runTask, _monitorTask;
+    private MidiDeviceGateway? _gateway;
+    private long _nextClient;
+    private string _directAccessStatus = "Direct device access has not been checked.";
+    private readonly object _statePublishLock = new();
 
     public event EventHandler<string>? LogMessage;
-
     public event EventHandler<string>? StatusChanged;
-
+    public event EventHandler<GatewayState>? GatewayChanged;
     public bool IsRunning => _cancellation is not null;
-
-    public Task StartAsync(ServerSettings settings, CancellationToken cancellationToken = default)
+    public GatewayState CurrentGatewayState
     {
-        if (IsRunning)
+        get
         {
-            return Task.CompletedTask;
+            MidiDeviceGateway? gateway = _gateway;
+            var snapshot = gateway?.GetState();
+            return new GatewayState(snapshot?.OwnerId, snapshot?.Connections ?? [], _directAccessStatus);
         }
+    }
 
+    public async Task StartAsync(ServerSettings settings, CancellationToken cancellationToken = default)
+    {
+        if (IsRunning) { return; }
         Validate(settings);
         Uri listenUri = TcpEndpoint.Parse(settings.ListenUrl);
-        IPAddress listenAddress = TcpEndpoint.ParseListenAddress(listenUri.Host);
-        var listener = new TcpListener(listenAddress, listenUri.Port);
+        var listener = new TcpListener(TcpEndpoint.ParseListenAddress(listenUri.Host), listenUri.Port);
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-
+        MidiDeviceGateway? gateway = null;
         try
         {
-            listener.Start(1);
-            _listener = listener;
-            _cancellation = cancellation;
-            _runTask = AcceptClientsAsync(listener, settings.Token, settings.MidiEndpoint, cancellation.Token);
+            PhysicalMidiEndpointDuplexPort physical = PhysicalMidiEndpointDuplexPort.Open(settings.MidiEndpoint);
+            gateway = new MidiDeviceGateway(physical, WriteLog,
+                new TransportDiagnostics(DiagnosticLog.GetPath("server-gateway.jsonl")));
+            foreach (string name in settings.LocalPortNames)
+            {
+                WindowsMidiServicesDuplexPort local = WindowsMidiServicesDuplexPort.Open(name.Trim());
+                try { gateway.AddLocalPort("local-" + name.Trim(), name.Trim(), local); }
+                catch { await local.DisposeAsync().ConfigureAwait(false); throw; }
+                WriteLog($"Local gateway port created: {name.Trim()}. Select it for one app's MIDI input and output.");
+            }
+            listener.Start(8);
+            _gateway = gateway; _listener = listener; _cancellation = cancellation;
+            gateway.StateChanged += OnGatewayChanged;
+            _runTask = AcceptClientsAsync(listener, settings.Token, gateway, cancellation.Token);
+            _monitorTask = MonitorDirectAccessAsync(physical, cancellation.Token);
+            WriteLog($"Gateway opened physical MIDI endpoint: {physical.EndpointName}. All gateway traffic uses one device writer.");
             SetStatus($"Listening on {settings.ListenUrl}");
-            return Task.CompletedTask;
+            PublishGatewayState();
         }
         catch
         {
-            listener.Stop();
-            cancellation.Dispose();
+            listener.Stop(); cancellation.Dispose();
+            if (gateway is not null) { await gateway.DisposeAsync().ConfigureAwait(false); }
             throw;
         }
     }
+
+    public Task ReserveAsync(string? connectionId, CancellationToken token = default) =>
+        (_gateway ?? throw new InvalidOperationException("Start the server first.")).ReserveAsync(connectionId, token);
 
     public async Task StopAsync()
     {
         CancellationTokenSource? cancellation = Interlocked.Exchange(ref _cancellation, null);
         TcpListener? listener = Interlocked.Exchange(ref _listener, null);
         Task? runTask = Interlocked.Exchange(ref _runTask, null);
-
+        Task? monitor = Interlocked.Exchange(ref _monitorTask, null);
+        MidiDeviceGateway? gateway = Interlocked.Exchange(ref _gateway, null);
         if (cancellation is not null)
         {
             await cancellation.CancelAsync().ConfigureAwait(false);
             listener?.Stop();
             if (runTask is not null)
             {
-                try
-                {
-                    await runTask.ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
-                {
-                }
-                catch (SocketException) when (cancellation.IsCancellationRequested)
-                {
-                }
+                try { await runTask.ConfigureAwait(false); }
+                catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+                catch (SocketException) when (cancellation.IsCancellationRequested) { }
             }
-
-            Task? clientTask = Interlocked.Exchange(ref _clientTask, null);
-            if (clientTask is not null)
+            await Task.WhenAll(_clients.Values).ConfigureAwait(false);
+            if (monitor is not null) { await monitor.ConfigureAwait(false); }
+            if (gateway is not null)
             {
-                try
-                {
-                    await clientTask.ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
-                {
-                }
+                gateway.StateChanged -= OnGatewayChanged;
+                await gateway.DisposeAsync().ConfigureAwait(false);
             }
-
             cancellation.Dispose();
         }
-
-        SetStatus("Stopped");
+        _directAccessStatus = "Direct device access has not been checked.";
+        SetStatus("Stopped"); PublishGatewayState();
     }
 
     public async ValueTask DisposeAsync()
@@ -97,112 +111,106 @@ public sealed class ServerRelayService : IAsyncDisposable
         _clientGate.Dispose();
     }
 
-    private async Task AcceptClientsAsync(
-        TcpListener listener,
-        string token,
-        string midiEndpoint,
-        CancellationToken cancellationToken)
+    private async Task AcceptClientsAsync(TcpListener listener, string token, MidiDeviceGateway gateway, CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
             TcpClient client = await listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
-            if (!await _clientGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
-            {
-                client.Dispose();
-                continue;
-            }
-
-            _clientTask = HandleClientAsync(client, token, midiEndpoint, cancellationToken);
+            if (!await _clientGate.WaitAsync(0, cancellationToken).ConfigureAwait(false)) { client.Dispose(); continue; }
+            long id = Interlocked.Increment(ref _nextClient);
+            Task task = HandleClientAsync(client, token, gateway, id, cancellationToken);
+            _clients[id] = task;
+            _ = ForgetClientAsync(id, task);
         }
     }
 
-    private async Task HandleClientAsync(
-        TcpClient client,
-        string token,
-        string midiEndpoint,
-        CancellationToken cancellationToken)
+    private async Task ForgetClientAsync(long id, Task task)
+    {
+        try { await task.ConfigureAwait(false); }
+        finally { _clients.TryRemove(id, out _); }
+    }
+
+    private async Task HandleClientAsync(TcpClient client, string token, MidiDeviceGateway gateway, long id, CancellationToken cancellationToken)
     {
         using (client)
         {
-            PhysicalMidiEndpointDuplexPort? midi = null;
+            IMidiDuplexPort? route = null;
             try
             {
-                client.NoDelay = true;
-                client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+                TcpSocketSettings.Configure(client.Client);
                 NetworkStream stream = client.GetStream();
-                using var authenticationTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                authenticationTimeout.CancelAfter(TimeSpan.FromSeconds(5));
-                bool authorized = await TcpAuthentication.ReceiveAndValidateAsync(
-                    stream,
-                    token,
-                    authenticationTimeout.Token).ConfigureAwait(false);
-                if (!authorized)
-                {
-                    WriteLog("Rejected a client with an invalid token or protocol.");
-                    return;
-                }
-
-                WriteLog($"Client connected: {client.Client.RemoteEndPoint}");
-                SetStatus("Client connected");
-
-                // Windows MIDI Services shares the endpoint with other applications (e.g. the
-                // device's own editor), so it can stay connected only for as long as needed.
-                midi = PhysicalMidiEndpointDuplexPort.Open(midiEndpoint);
-                WriteLog($"Connected to MIDI endpoint: {midi.EndpointName}");
-                await TcpMidiBridge.RunAsync(stream, midi, null, cancellationToken).ConfigureAwait(false);
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeout.CancelAfter(TimeSpan.FromSeconds(5));
+                string? interfaceName = await TcpAuthentication.ReceiveRequestAsync(stream, token, timeout.Token).ConfigureAwait(false);
+                if (interfaceName is null)
+                { WriteLog("Rejected a client with an invalid token or protocol."); return; }
+                string name = string.IsNullOrEmpty(interfaceName) ? $"Remote connection {id}" : $"Remote: {interfaceName}";
+                try { route = gateway.AddNetworkConnection("remote-" + id, $"{name} ({client.Client.RemoteEndPoint})"); }
+                catch (GatewayUnavailableException)
+                { await TcpAuthentication.RejectBusyAsync(stream, timeout.Token).ConfigureAwait(false); return; }
+                await TcpAuthentication.AcceptAsync(stream, timeout.Token).ConfigureAwait(false);
+                WriteLog($"{route.InputName} connected to the gateway.");
+                await using var diagnostics = new TransportDiagnostics(DiagnosticLog.GetPath("server-transport.jsonl"));
+                await TcpMidiBridge.RunAsync(stream, route, WriteLog, cancellationToken, diagnostics).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-            }
-            catch (OperationCanceledException error)
-            {
-                WriteLog($"Client connection ended: {error.Message}");
-            }
-            catch (Exception error) when (error is IOException or SocketException or EndOfStreamException or InvalidOperationException)
-            {
-                WriteLog($"Client connection ended: {error.Message}");
-            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+            catch (OperationCanceledException) { WriteLog("Client authentication timed out."); }
+            catch (Exception error) when (error is IOException or SocketException or InvalidOperationException or InvalidDataException)
+            { WriteLog($"Client connection ended: {error.Message}"); }
             finally
             {
-                if (midi is not null)
-                {
-                    await midi.DisposeAsync().ConfigureAwait(false);
-                    WriteLog("MIDI endpoint connection released.");
-                }
-
+                if (route is not null) { await route.DisposeAsync().ConfigureAwait(false); }
                 _clientGate.Release();
-                if (IsRunning)
-                {
-                    SetStatus("Listening");
-                }
             }
         }
     }
+
+    private async Task MonitorDirectAccessAsync(PhysicalMidiEndpointDuplexPort physical, CancellationToken token)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        try
+        {
+            do
+            {
+                string status;
+                try
+                {
+                    IReadOnlyList<string> sessions = physical.GetOtherSessionNames();
+                    status = sessions.Count == 0 ? "No other Windows MIDI Services sessions detected on the physical device." :
+                        $"Direct device access: {string.Join(", ", sessions)}. Reservations only cover gateway ports.";
+                }
+                catch (Exception error) when (error is COMException or InvalidOperationException or NotSupportedException)
+                { status = "Other apps' direct device access could not be checked on this Windows MIDI Services version."; }
+                if (status != _directAccessStatus)
+                { _directAccessStatus = status; WriteLog(status); PublishGatewayState(); }
+            } while (await timer.WaitForNextTickAsync(token).ConfigureAwait(false));
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    private void OnGatewayChanged(object? sender, EventArgs args) => PublishGatewayState();
+    private void PublishGatewayState()
+    {
+        lock (_statePublishLock) { GatewayChanged?.Invoke(this, CurrentGatewayState); }
+    }
+    private void WriteLog(string message) => LogMessage?.Invoke(this, message);
+    private void SetStatus(string status) => StatusChanged?.Invoke(this, status);
 
     private static void Validate(ServerSettings settings)
     {
-        if (!settings.IsComplete)
-        {
-            throw new InvalidOperationException("Select a physical MIDI endpoint and enter a valid TCP listen address.");
-        }
-
+        if (!settings.IsComplete) { throw new InvalidOperationException("Select a physical MIDI endpoint and enter a valid TCP listen address."); }
         if (!PhysicalMidiEndpointCatalog.GetNames().Contains(settings.MidiEndpoint, StringComparer.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException($"MIDI endpoint not found: {settings.MidiEndpoint}");
-        }
-
+        { throw new InvalidOperationException($"MIDI endpoint not found: {settings.MidiEndpoint}"); }
+        if (settings.LocalPortNames is null || settings.LocalPortNames.Length > 8 ||
+            settings.LocalPortNames.Any(name => string.IsNullOrWhiteSpace(name) || name.Trim().Length > 31 || name.Any(char.IsControl)) ||
+            settings.LocalPortNames.Select(name => name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count() != settings.LocalPortNames.Length)
+        { throw new InvalidOperationException("Use up to eight different local port names, each 1–31 characters long."); }
+        if (settings.LocalPortNames.Any(name => name.Trim().Equals(settings.MidiEndpoint, StringComparison.OrdinalIgnoreCase)))
+        { throw new InvalidOperationException("Give virtual ports different names from the physical device."); }
         Uri uri = TcpEndpoint.Parse(settings.ListenUrl);
-        bool loopback = uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
-            || uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
-            || uri.Host.Equals("[::1]", StringComparison.OrdinalIgnoreCase)
-            || uri.Host.Equals("::1", StringComparison.OrdinalIgnoreCase);
+        bool loopback = uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+            uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase) || uri.Host.Trim('[', ']').Equals("::1", StringComparison.OrdinalIgnoreCase);
         if (!loopback && string.IsNullOrWhiteSpace(settings.Token))
-        {
-            throw new InvalidOperationException("Enter a shared token when listening beyond this computer.");
-        }
+        { throw new InvalidOperationException("Enter a shared token when listening beyond this computer."); }
     }
-
-    private void WriteLog(string message) => LogMessage?.Invoke(this, message);
-
-    private void SetStatus(string status) => StatusChanged?.Invoke(this, status);
 }

@@ -6,6 +6,7 @@ public enum MidiPacketFormat : byte
 {
     Midi1 = 1,
     UniversalMidiPacket = 2,
+    UniversalMidiPacketBatch = 3,
 }
 
 public readonly record struct MidiPacket
@@ -22,6 +23,7 @@ public readonly record struct MidiPacket
     public MidiPacketFormat Format { get; }
 
     public ReadOnlyMemory<byte> Data { get; }
+    public long EnqueuedTimestamp { get; init; }
 
     public static MidiPacket FromUmpWords(ReadOnlySpan<uint> words)
     {
@@ -42,7 +44,7 @@ public readonly record struct MidiPacket
     public uint[] ToUmpWords()
     {
         Validate();
-        if (Format != MidiPacketFormat.UniversalMidiPacket)
+        if (Format is not (MidiPacketFormat.UniversalMidiPacket or MidiPacketFormat.UniversalMidiPacketBatch))
         {
             throw new InvalidOperationException("This packet is not a Universal MIDI Packet.");
         }
@@ -64,9 +66,14 @@ public readonly record struct MidiPacket
                 MidiFrame.Validate(Data.Span);
                 break;
             case MidiPacketFormat.UniversalMidiPacket when Data.Length is >= sizeof(uint) and <= MaximumUmpWordCount * sizeof(uint) && Data.Length % sizeof(uint) == 0:
+                if (UmpSysExAssembler.WordCount(Data.Span[0]) * 4 != Data.Length)
+                { throw new InvalidDataException("UMP word count does not match its message type."); }
                 break;
             case MidiPacketFormat.UniversalMidiPacket:
                 throw new InvalidDataException("A UMP packet must contain between 1 and 4 complete words.");
+            case MidiPacketFormat.UniversalMidiPacketBatch:
+                UmpSysExAssembler.ValidateBatch(Data.Span);
+                break;
             default:
                 throw new InvalidDataException($"Unsupported MIDI packet format: {(byte)Format}.");
         }

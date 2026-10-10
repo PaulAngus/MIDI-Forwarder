@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Diagnostics;
 
 namespace MidiForwarder.Core;
 
@@ -8,21 +9,32 @@ public static class TcpMidiBridge
         Stream stream,
         IMidiDuplexPort midi,
         Action<string>? log,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TransportDiagnostics? diagnostics = null)
     {
         using var sessionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        Task midiToNetwork = PumpMidiToNetworkAsync(stream, midi, log, sessionCancellation.Token);
-        Task networkToMidi = PumpNetworkToMidiAsync(stream, midi, log, sessionCancellation.Token);
-
-        await Task.WhenAny(midiToNetwork, networkToMidi).ConfigureAwait(false);
-        await sessionCancellation.CancelAsync().ConfigureAwait(false);
-
+        var sessionPort = midi as IMidiSessionPort;
+        sessionPort?.BeginSession();
+        Exception? failure = null;
         try
         {
-            await Task.WhenAll(midiToNetwork, networkToMidi).ConfigureAwait(false);
+            Task midiToNetwork = PumpMidiToNetworkAsync(stream, midi, diagnostics, sessionCancellation.Token);
+            Task networkToMidi = PumpNetworkToMidiAsync(stream, midi, diagnostics, sessionCancellation.Token);
+            await Task.WhenAny(midiToNetwork, networkToMidi).ConfigureAwait(false);
+            await sessionCancellation.CancelAsync().ConfigureAwait(false);
+            try { await Task.WhenAll(midiToNetwork, networkToMidi).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (sessionCancellation.IsCancellationRequested) { }
         }
-        catch (OperationCanceledException) when (sessionCancellation.IsCancellationRequested)
+        catch (Exception error) when (error is IOException or InvalidDataException)
         {
+            failure = error;
+            throw;
+        }
+        finally
+        {
+            sessionPort?.EndSession();
+            diagnostics?.Finish(failure, sessionPort?.ReceiveStatistics);
+            log?.Invoke(failure is null ? "MIDI transport session ended." : $"MIDI transport session failed: {failure.GetType().Name}");
         }
     }
 
@@ -62,20 +74,24 @@ public static class TcpMidiBridge
     private static async Task PumpMidiToNetworkAsync(
         Stream stream,
         IMidiDuplexPort midi,
-        Action<string>? log,
+        TransportDiagnostics? diagnostics,
         CancellationToken cancellationToken)
     {
         await foreach (MidiPacket packet in midi.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
-            await WriteFrameAsync(stream, packet, cancellationToken).ConfigureAwait(false);
-            log?.Invoke($"MIDI -> network: {packet.Data.Length} byte(s), {packet.Format}");
+            long started = Stopwatch.GetTimestamp();
+            try { await WriteFrameAsync(stream, packet, cancellationToken).ConfigureAwait(false); }
+            catch (Exception error) when (error is IOException or InvalidDataException)
+            { diagnostics?.Failure("midi-to-network", packet, Stopwatch.GetElapsedTime(started).TotalMilliseconds, error); throw; }
+            diagnostics?.Record("midi-to-network", packet, Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                (midi as IMidiSessionPort)?.ReceiveStatistics);
         }
     }
 
     private static async Task PumpNetworkToMidiAsync(
         Stream stream,
         IMidiDuplexPort midi,
-        Action<string>? log,
+        TransportDiagnostics? diagnostics,
         CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -86,8 +102,12 @@ public static class TcpMidiBridge
                 return;
             }
 
-            await midi.SendAsync(packet.Value, cancellationToken).ConfigureAwait(false);
-            log?.Invoke($"Network -> MIDI: {packet.Value.Data.Length} byte(s), {packet.Value.Format}");
+            long started = Stopwatch.GetTimestamp();
+            try { await midi.SendAsync(packet.Value, cancellationToken).ConfigureAwait(false); }
+            catch (Exception error) when (error is IOException or InvalidDataException)
+            { diagnostics?.Failure("network-to-midi", packet.Value, Stopwatch.GetElapsedTime(started).TotalMilliseconds, error); throw; }
+            diagnostics?.Record("network-to-midi", packet.Value, Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                (midi as IMidiSessionPort)?.ReceiveStatistics);
         }
     }
 
