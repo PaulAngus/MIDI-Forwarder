@@ -54,73 +54,68 @@ public sealed class MidiDeviceGatewayTests
     }
 
     [Fact]
-    public async Task ReservationWaitsForCurrentSendAndClosesOtherNetworkSessions()
+    public async Task NewConnectionDuringAnotherSendKeepsAllAppsConnectedAndBroadcastsReplies()
     {
         var device = new TestPort { HoldFirstSend = true };
         await using var gateway = new MidiDeviceGateway(device);
         await using var a = gateway.AddNetworkConnection("a", "App A");
-        await using var b = gateway.AddNetworkConnection("b", "App B");
         Task first = a.SendAsync(Complete(1), default).AsTask();
         await device.SendStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
-        Task reservation = gateway.ReserveAsync("a");
-        Task queued = b.SendAsync(Complete(2), default).AsTask();
-        Assert.False(reservation.IsCompleted);
-        device.ReleaseSend.TrySetResult();
-        await first; await reservation;
-        await Assert.ThrowsAsync<IOException>(() => queued);
-        Assert.Equal("a", gateway.OwnerId);
-        Assert.Throws<GatewayUnavailableException>(() => gateway.AddNetworkConnection("c", "App C"));
-        await using var reader = b.ReadAllAsync(default).GetAsyncEnumerator();
-        Assert.False(await reader.MoveNextAsync());
-        await gateway.ReserveAsync(null);
-        await using var c = gateway.AddNetworkConnection("c", "App C");
-        await c.SendAsync(Complete(3), default);
+        await using var b = gateway.AddNetworkConnection("b", "App B");
+        var local = new TestPort(); gateway.AddLocalPort("local", "Local app", local);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await using var aReader = a.ReadAllAsync(timeout.Token).GetAsyncEnumerator();
+        await using var bReader = b.ReadAllAsync(timeout.Token).GetAsyncEnumerator();
+        device.Input.Publish(Note(0x20c02a00));
+        Assert.True(await aReader.MoveNextAsync()); Assert.True(await bReader.MoveNextAsync());
+        Assert.Equal(0x20c02a00u, aReader.Current.ToUmpWords()[0]);
+        Assert.Equal(0x20c02a00u, bReader.Current.ToUmpWords()[0]);
+        Assert.Equal(0x20c02a00u, (await local.TakeAsync()).ToUmpWords()[0]);
+        device.ReleaseSend.TrySetResult(); await first;
+        await b.SendAsync(Note(0x20c12b00), timeout.Token);
+        Assert.Equal(3, gateway.Connections.Count);
         Assert.Equal(1, UmpMidi1Codec.DecodeSysEx7Batch(await device.TakeAsync())[2]);
-        Assert.Equal(3, UmpMidi1Codec.DecodeSysEx7Batch(await device.TakeAsync())[2]);
-        Assert.False(device.Sent.Reader.TryRead(out _));
+        Assert.Equal(0x20c12b00u, (await device.TakeAsync()).ToUmpWords()[0]);
     }
 
     [Fact]
-    public async Task PausedLocalTrafficAndPartialSysExNeverReplayOnReleaseAndRepliesGoToOwner()
+    public async Task AppDisconnectDoesNotDiscardOtherAppsPartialSysExOrPendingMessages()
     {
         var device = new TestPort();
         await using var gateway = new MidiDeviceGateway(device);
         var a = new TestPort(); var b = new TestPort();
         gateway.AddLocalPort("a", "App A", a); gateway.AddLocalPort("b", "App B", b);
-        var old = Fragments(2); b.Input.Publish(old[0]);
-        await gateway.ReserveAsync("a");
-        b.Input.Publish(old[1]); b.Input.Publish(Note());
-        device.Input.Publish(Note(0x20904041));
-        Assert.Equal(0x20904041u, (await a.TakeAsync()).ToUmpWords()[0]);
-        Assert.False(b.Sent.Reader.TryRead(out _));
-        Assert.Equal(2, b.Input.Statistics.OfflinePackets);
-        await gateway.ReserveAsync(null);
-        b.Input.Publish(old[1]); // An orphaned tail cannot complete the abandoned message.
-        b.Input.Publish(Complete(3));
-        Assert.Equal(3, UmpMidi1Codec.DecodeSysEx7Batch(await device.TakeAsync())[2]);
-        Assert.False(device.Sent.Reader.TryRead(out _));
-        device.Input.Publish(Note(0x20904142));
-        Assert.Equal(0x20904142u, (await a.TakeAsync()).ToUmpWords()[0]);
-        Assert.Equal(0x20904142u, (await b.TakeAsync()).ToUmpWords()[0]);
+        var remote = gateway.AddNetworkConnection("remote", "Remote app");
+        var fragments = Fragments(3);
+        b.Input.Publish(fragments[0]);
+        await remote.DisposeAsync();
+        b.Input.Publish(fragments[1]);
+        a.Input.Publish(Note(0x20903031));
+        MidiPacket[] sent = [await device.TakeAsync(), await device.TakeAsync()];
+        Assert.Contains(sent, packet => packet.Format == MidiPacketFormat.UniversalMidiPacketBatch && UmpMidi1Codec.DecodeSysEx7Batch(packet)[2] == 3);
+        Assert.Contains(sent, packet => packet.Format == MidiPacketFormat.UniversalMidiPacket && packet.ToUmpWords()[0] == 0x20903031);
+        Assert.Equal(2, gateway.Connections.Count);
+        Assert.Equal(0, b.Input.Statistics.OfflinePackets);
     }
 
     [Fact]
-    public async Task OwnerDisconnectReleasesReservationAndLocalPortsResume()
+    public async Task SlowReceiverCannotBlockAnotherAppsRepliesOrProgramChanges()
     {
         var device = new TestPort();
         await using var gateway = new MidiDeviceGateway(device);
-        var local = new TestPort(); gateway.AddLocalPort("local", "Local app", local);
-        var remote = gateway.AddNetworkConnection("remote", "Remote app");
-        await gateway.ReserveAsync("remote");
-        local.Input.Publish(Note(0x20903031));
-        await remote.DisposeAsync();
-        Assert.Null(gateway.OwnerId);
-        Assert.All(gateway.Connections, connection => Assert.False(connection.IsPaused));
-        local.Input.Publish(Note(0x20903233));
-        Assert.Equal(0x20903233u, (await device.TakeAsync()).ToUmpWords()[0]);
-        Assert.False(device.Sent.Reader.TryRead(out _));
+        await using var slow = gateway.AddNetworkConnection("slow", "Slow app");
+        await using var active = gateway.AddNetworkConnection("active", "Active app");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var reader = active.ReadAllAsync(timeout.Token).GetAsyncEnumerator();
+        for (int i = 0; i < 4200; i++)
+        {
+            device.Input.Publish(Note(0x20c02a00));
+            Assert.True(await reader.MoveNextAsync());
+            Assert.Equal(0x20c02a00u, reader.Current.ToUmpWords()[0]);
+        }
+        await active.SendAsync(Note(0x20c52a00), timeout.Token);
+        Assert.Equal(0x20c52a00u, (await device.TakeAsync()).ToUmpWords()[0]);
     }
-
     [Fact]
     public async Task FailedPhysicalSendEndsAllRoutesInsteadOfSendingLaterMessages()
     {

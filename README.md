@@ -94,45 +94,39 @@ select the assigned public port for both input and output in each app.
 7. In each MIDI application, select its assigned generated endpoint for both MIDI
    input and MIDI output. For example, use `PresetMaestro` and `FM9-Edit` as two port names.
 
-The input and output use the configured name without an `(App)` suffix. The
-internal `(Relay)` endpoint does not create WinMM or WinRT MIDI 1.0 ports, so
-it is absent from those applications' input/output selectors.
+The input and output use the configured name without an `(App)` suffix. An
+internal `(Relay)` endpoint also appears in MIDI selectors; select the configured
+name without that suffix. Version 1.0.2 exposes both sides consistently to avoid
+the service hang reproduced with an asymmetric loopback pair on this PC.
 The client retries a dropped connection with
 bounded exponential backoff (1, 2, 4, … up to 30 seconds) while keeping the
 virtual endpoint alive.
 
-## Sharing and reserving the device
+## Shared MIDI access
 
-In shared mode, complete messages from gateway ports pass through one device writer.
-Device replies are broadcast to the connected gateway ports. This prevents those
-ports from interleaving multipart SysEx, but a generic gateway cannot match arbitrary
-device requests and replies or coordinate two editors' state.
+Version 1.0.2 always shares the device. The forwarder no longer has a Reserve
+or Release action: it never chooses an owner, pauses another gateway route,
+closes another app's connection for ownership, or discards its messages on an
+ownership change. Every connected route can send and receives device input.
+A slow receiver has its own bounded queue; it cannot hold up another receiver.
 
-For a full sync, firmware operation or other bulk transfer:
+Complete outgoing messages still use one short-lived device writer so multipart
+SysEx from gateway apps is not interleaved. This serializes individual messages;
+it does not reserve the device across an app's session or request/reply exchange.
+Use distinct virtual ports for independently assembled SysEx streams. Direct
+physical-device apps remain independent Windows MIDI Services clients.
 
-1. Let existing transfers finish. On the server, select the app's connection under
-   **Device access** and click **Reserve device** before starting the transfer.
-2. Run the transfer in that app. Other local ports pause, other network connections
-   close, and the reserved app alone receives device replies.
-3. Click **Release device** when finished. Local ports resume immediately; remote
-   ports reconnect using their normal retry delay.
+Coordinate firmware updates or other device-sensitive bulk operations in the
+sending apps. A generic forwarder cannot infer device transactions or cancel a
+command already accepted by hardware. Other-process endpoint reporting is advisory
+and never changes forwarding, disconnects a route, or mutes an endpoint.
 
-Traffic sent while paused or disconnected is discarded, including queued commands
-and partial SysEx. It is never replayed on release. Paused apps can report timeouts;
-avoid starting work in them until access is released. A reservation remains until
-released, its connection ends, or the server stops. A local app closing does not
-remove its virtual port, so release a local reservation explicitly.
-
-All participating apps must use different gateway ports. Apps connected directly
-to the physical endpoint, or sharing the same virtual port, bypass this coordination.
-The server reports other processes opening the physical endpoint when Windows MIDI
-Services supports session reporting. This is advisory: an open endpoint does not
-prove active traffic, and the gateway cannot lock out an external process.
-Reservation waits for the current send call; it cannot cancel a command already
-accepted by the device or determine that an arbitrary device operation has finished.
+Only one desktop server and one desktop client may run per Windows login session.
+Opening a duplicate exits before touching MIDI; use the running app's tray icon
+for settings. Start/stop operations are serialized, and MIDI setup runs off the
+UI thread so restarting cannot overlap an earlier shutdown.
 
 See [gateway design and UI validation](docs/gateway-ux.md).
-
 ## Configuration and lifecycle
 
 Both applications start with a configuration window on first launch. After a
@@ -164,13 +158,14 @@ The client creates a transient Windows MIDI Services loopback association with
 two endpoints:
 
 ```text
-<name> (Relay)  - UMP-only internal side opened by MIDI Forwarder
+<name> (Relay)  - internal side opened by MIDI Forwarder
 <name>          - public MIDI input/output (default: MIDI Forwarder)
 ```
 
-Only the public side creates MIDI 1.0 input/output ports. The Relay side remains
-discoverable through the Windows MIDI Services UMP API and diagnostic tools;
-this is not a system-wide visibility or access restriction.
+Both sides create MIDI 1.0 input/output ports and are discoverable through the
+Windows MIDI Services UMP API. The Relay name is shortened when necessary to fit
+the 31-character WinMM limit; the configured public name is preserved.
+The SDK is pinned to `0.99.88-preview.10`, matching Preset Sender.
 
 Each association is removed when its client or server stops normally. If the process is
 killed or the Windows MIDI service crashes, Windows may retain the transient
@@ -194,8 +189,8 @@ Run these commands from a terminal in the published application's directory:
 
 `--list-ports` prints the WinMM input and output names with their indexes and
 then exits. `--check-virtual-midi` creates a uniquely named short-lived test
-endpoint, checks that WinMM and WinRT MIDI 1.0 each expose only one public input
-and output without suffixes, and tests Program Change and multipart SysEx in
+endpoint, checks that WinMM and WinRT MIDI 1.0 expose the public and internal
+Relay input/output pairs, and tests Program Change and multipart SysEx in
 both directions. It removes the test endpoints on normal completion and exits with:
 
 - `0` when visibility and message checks pass;
@@ -232,8 +227,7 @@ The transport is deliberately small and stream-safe:
 2. The server validates the token using a fixed-time comparison and a five
    second authentication deadline.
 3. The server registers the app connection and acknowledges with `MIDIFWD3`.
-   If another connection has reserved the device, it replies `MIDIBUSY` and closes;
-   the client reports that it is waiting for access and retries.
+   The current server never sends an ownership-busy response.
 4. Each MIDI message is sent as a four-byte big-endian signed length, one format
    byte, and message bytes. Update both applications together; old peers are rejected.
 
@@ -255,6 +249,7 @@ Restore uses only the sources configured in `NuGet.Config`, including the
 repository's pinned packages:
 
 ```powershell
+./Initialize-MidiSdk.ps1
 dotnet restore .\MIDI-Forwarder.slnx --configfile .\NuGet.Config
 dotnet build .\MIDI-Forwarder.slnx --no-restore
 dotnet test .\MIDI-Forwarder.slnx --no-restore
@@ -262,15 +257,44 @@ dotnet test .\MIDI-Forwarder.slnx --no-restore
 
 Developer checks render both windows in light/dark themes at normal/narrow sizes,
 or exercise the actual Windows virtual ports, client/server TCP connections,
-reservations, reconnects, message isolation and device replies:
+shared access, reconnects, message isolation and device replies:
 
 ```powershell
 dotnet run --project .\tools\MidiForwarder.Checks -c Release
 dotnet run --project .\tools\MidiForwarder.Checks -c Release -- --virtual-gateway
+dotnet run --project .\tools\MidiForwarder.Checks -c Release -- --shared-access
+dotnet run --project .\tools\MidiForwarder.Checks -c Release -- --sender-coexistence C:\path\to\PresetSender.exe
 ```
 
-The virtual check uses uniquely named temporary ports and does not touch physical
-hardware or saved settings. The rendering check writes PNGs under `artifacts/gateway-preview`.
+The virtual checks use uniquely named temporary ports and do not touch physical
+hardware or saved settings. The sender coexistence check uses the actual published
+Preset Sender, verifies both startup orders, two legacy receivers on all 16
+channels, three forwarder start/stop cycles, bidirectional SysEx and clean sender
+shutdown. This check passed on 11 October 2026 with both applications using
+symmetric loopback pairs. The rendering check writes PNGs under `artifacts/gateway-preview`.
+
+`--shared-access` exercises simultaneous direct WinMM and forwarded request/reply
+traffic using a temporary virtual device. Each app sends 200 distinct 16 KiB SysEx
+requests and checks its complete 1 KiB replies, without reserving or pausing either
+route. Add `--large` for 128 KiB requests, or `--direct-only` to compare two direct
+WinMM writers with the forwarder's writer bypassed. On the development machine,
+the 16 KiB check passed; simultaneous 128 KiB requests were damaged in both writer
+configurations. That stress result demonstrates a shared-stack limitation; it
+does not establish the cause of a physical device's missing or ambiguous replies.
+
+To check basic communication with an attached FM9 using read-only firmware queries:
+
+```powershell
+dotnet run --project .\tools\MidiForwarder.Checks -c Release -- --fm9-access
+dotnet run --project .\tools\MidiForwarder.Checks -c Release -- --fm9-access --with-server
+```
+
+These commands touch the physical FM9 but do not change its settings. The second
+opens an isolated server on a temporary loopback TCP port, without forwarding any
+app traffic or changing saved settings. Add `--ump` to query through Windows MIDI
+Services instead of WinMM. Five checksum-validated firmware replies establish
+basic communication only; they do not validate a full sync or simultaneous app
+transactions. Stop other transfers before running this diagnostic.
 
 Publish the two self-contained Win-x64 applications with:
 
@@ -340,8 +364,7 @@ After upgrading from a build that exposed `(App)` and `(Relay)`, exit that old
 client and start the updated client, then reselect `MIDI Forwarder` for input
 and output. A still-running old client will continue to publish its old names.
 
-**The client is waiting for access.** Release the reservation on the server when
-the owning app's transfer finishes. Remote ports reconnect after their retry delay.
+**The client is waiting for access.** It is connected to an older server that still supports reservations. Update both applications to 1.0.2.
 
 **A device works locally but not remotely.** Verify the server's selected physical
 endpoint and the app's assigned public virtual input and output. Test with a simple

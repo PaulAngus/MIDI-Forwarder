@@ -7,6 +7,8 @@ namespace MidiForwarder.Client;
 public sealed class ClientRelayService : IAsyncDisposable
 {
     private CancellationTokenSource? _cancellation;
+    private readonly SemaphoreSlim _lifecycle = new(1, 1);
+    private bool _disposed;
     private Task? _runTask;
     private List<WindowsMidiServicesDuplexPort>? _ports;
     private readonly object _statusLock = new();
@@ -19,6 +21,17 @@ public sealed class ClientRelayService : IAsyncDisposable
     public bool IsRunning => _cancellation is not null;
 
     public async Task StartAsync(ClientSettings settings)
+    {
+        await _lifecycle.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            await Task.Run(() => StartCoreAsync(settings)).ConfigureAwait(false);
+        }
+        finally { _lifecycle.Release(); }
+    }
+
+    private async Task StartCoreAsync(ClientSettings settings)
     {
         if (IsRunning)
         {
@@ -56,6 +69,13 @@ public sealed class ClientRelayService : IAsyncDisposable
 
     public async Task StopAsync()
     {
+        await _lifecycle.WaitAsync().ConfigureAwait(false);
+        try { await Task.Run(StopCoreAsync).ConfigureAwait(false); }
+        finally { _lifecycle.Release(); }
+    }
+
+    private async Task StopCoreAsync()
+    {
         CancellationTokenSource? cancellation = Interlocked.Exchange(ref _cancellation, null);
         Task? runTask = Interlocked.Exchange(ref _runTask, null);
         List<WindowsMidiServicesDuplexPort>? ports = Interlocked.Exchange(ref _ports, null);
@@ -82,7 +102,17 @@ public sealed class ClientRelayService : IAsyncDisposable
         SetStatus("Stopped");
     }
 
-    public async ValueTask DisposeAsync() => await StopAsync().ConfigureAwait(false);
+    public async ValueTask DisposeAsync()
+    {
+        await _lifecycle.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_disposed) { return; }
+            _disposed = true;
+            await Task.Run(StopCoreAsync).ConfigureAwait(false);
+        }
+        finally { _lifecycle.Release(); }
+    }
 
     private async Task RunReconnectLoopAsync(
         Uri serverUri,

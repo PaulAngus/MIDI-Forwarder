@@ -2,7 +2,7 @@
 
 The transport remains device and application agnostic. A server gateway now
 coordinates its local virtual ports and remote connections through one physical
-device writer, with optional explicit reservation. It does not understand Fractal
+device writer, with always-shared access. It does not understand Fractal
 commands or match arbitrary requests to replies. Direct physical connections remain
 outside gateway coordination.
 
@@ -57,27 +57,22 @@ remote connections and up to eight configured local ports. Each app must use its
 own virtual port, so incoming SysEx assembly stays separate even when apps use the
 same UMP group and SysEx8 stream. In shared mode device input is broadcast.
 
-Reservation takes the physical-send semaphore, waits for a current send to finish,
-and changes the owner while clearing queued input and partial assemblies. A monotonic
-timestamp fence rejects local commands already dequeued before this boundary. Other
-local ports pause without ending their readers; other network routes close, causing
-the clients to discard offline traffic. The reserved connection receives replies
-alone. Release clears queues again and resumes local ports; remote clients retry.
-Owner disconnection releases the reservation. Local virtual ports remain registered
-when their app closes, so a local reservation requires explicit release.
+There is no exclusive owner or reservation boundary in 1.0.1. All connected
+routes send through the message writer and receive device input independently.
+Connecting or disconnecting one app does not clear another app's pending commands
+or partially assembled SysEx. A saturated receiver fails only its own queue.
 
-Commands already accepted by hardware cannot be recalled. Wait for an existing
-device operation to finish before reserving another app. There is no generic
-request/reply arbitration or automatic reservation timeout. See the
-[gateway design notes](gateway-ux.md) for workflow and scope.
-
+Start/stop operations are serialized and run MIDI setup on a thread-pool MTA.
+A desktop instance guard prevents accidentally starting the same saved gateway
+twice. No system-wide MIDI mute, driver lock or automatic reservation is applied.
+Commands accepted by the device cannot be recalled; coordinate bulk operations
+in the sending apps. See [gateway design notes](gateway-ux.md).
 ## Protocol version 3
 
 **Update both client and server together.** Authentication begins with `MIDIFWD3`
 and the same token-length/token structure, followed by a two-byte big-endian UTF-8
 app-port name length and name (up to 128 bytes, no control characters). After
-validation and route registration, the server acknowledges with `MIDIFWD3`. While
-reserved, a new route receives `MIDIBUSY` and closes; the client waits and retries.
+validation and route registration, the server acknowledges with `MIDIFWD3`. The server no longer returns `MIDIBUSY`; clients retain decoding support for older servers.
 The client allows five seconds for acknowledgement before enabling forwarding.
 Version 1 and 2 peers are rejected rather than appearing successfully connected.
 
@@ -94,7 +89,7 @@ authentication, not encryption.
 
 TCP uses no-delay and keep-alive. Both endpoints request a ten-second idle period,
 three-second probe interval and three failed probes, so an unreachable connection
-does not retain an owner for the system's much longer default. This detects TCP
+does not retain a connection for the system's much longer default. This detects TCP
 liveness, not MIDI device responsiveness; detection time depends on the OS and
 network. These are documented Windows
 [IPPROTO_TCP options](https://learn.microsoft.com/en-us/windows/win32/winsock/ipproto-tcp-socket-options).
@@ -116,7 +111,7 @@ Each log rotates at approximately 2 MiB and keeps two backups. A bounded 256-rec
 writer queue drops log records rather than blocking transport; summaries report
 that count. Logging failure does not stop MIDI. Concurrent connection log writers
 serialize appends and rotation within the process to avoid losing another session's
-records. The server's activity log reports reservation and other-process endpoint
+records. The server's activity log reports connection and other-process endpoint
 access changes without inspecting MIDI payloads. Session reporting uses
 [MidiReporting](https://microsoft.github.io/MIDI/sdk-reference/Reporting/MidiReporting/);
 it identifies open endpoints, not proven competing sends or exclusive access.
@@ -125,10 +120,12 @@ Regression coverage includes interleaved groups/streams, stale reconnect traffic
 partial messages, overflow, transmission limits and mid-transfer failure, framing,
 version acknowledgement, log privacy/failure, and real localhost TCP forwarding in
 both directions. Gateway tests cover same-group app isolation, serialized writes,
-reservation during a send, stale traffic, paused readers, owner loss, physical-send
-failure, and busy authentication. The developer `--virtual-gateway` check exercises
-the real client/server services with four local/remote app ports and a virtual
-hardware endpoint, including interleaved SysEx, reservation, discarded offline
-commands, release/reconnect and replies. It leaves physical hardware untouched.
+new apps joining during a send, broadcast replies, preserved partial messages on
+another app's disconnect, slow receiver isolation, physical-send failure, and
+legacy busy authentication. The native `--virtual-gateway` check exercises four
+local/remote app ports and a temporary virtual device, including interleaved
+SysEx, shared replies and local forwarding after remote disconnect. It leaves
+physical hardware untouched.
+
 The original FM9 timeout cause remains unproven; simultaneous FM9-Edit/PresetMaestro
 hardware validation through distinct gateway ports is still needed.

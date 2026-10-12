@@ -37,7 +37,7 @@ public sealed class WindowsMidiServicesDuplexPort : IMidiDuplexPort, IMidiSessio
     public static WindowsMidiServicesDuplexPort Open(string interfaceName)
     {
         string rootName = ValidateAndNormalizeName(interfaceName);
-        string relayName = rootName + RelaySuffix;
+        string relayName = rootName[..Math.Min(rootName.Length, MaximumWinMmPortNameLength - RelaySuffix.Length)] + RelaySuffix;
         string applicationName = rootName;
         MidiSession? session = null;
         MidiEndpointConnection? connection = null;
@@ -62,10 +62,10 @@ public sealed class WindowsMidiServicesDuplexPort : IMidiDuplexPort, IMidiSessio
             var definitionA = new MidiLoopbackEndpointDefinition
             {
                 Name = relayName,
-                Description = "Private relay endpoint owned by MIDI Forwarder Client",
+                Description = "Internal relay endpoint used by MIDI Forwarder",
                 UniqueId = uniqueId + "a",
-                // Keep the relay accessible to this UMP connection, but out of MIDI 1.0 selectors.
-                CreateOnlyUmpEndpoint = true,
+                // Keep both sides consistent on this Windows service build. Asymmetric legacy-port creation can stall activation.
+                CreateOnlyUmpEndpoint = false,
             };
             var definitionB = new MidiLoopbackEndpointDefinition
             {
@@ -76,6 +76,7 @@ public sealed class WindowsMidiServicesDuplexPort : IMidiDuplexPort, IMidiSessio
             };
             var creationConfig = new MidiLoopbackCreationConfig(definitionA, definitionB);
 
+            DiagnosticLog.Write("midi-endpoints.log", $"{rootName}: creating symmetric loopback pair.");
             MidiLoopbackCreationResponse creationResult = MidiLoopbackManager.CreateTransientLoopback(creationConfig);
             if (!creationResult.Success)
             {
@@ -86,11 +87,13 @@ public sealed class WindowsMidiServicesDuplexPort : IMidiDuplexPort, IMidiSessio
             connection = session.CreateEndpointConnection(creationResult.CreatedLoopbackEntry.EndpointA.EndpointDeviceId)
                 ?? throw new InvalidOperationException("Windows MIDI Services could not open the relay side of the virtual interface.");
             var port = new WindowsMidiServicesDuplexPort(applicationName, session, connection, associationId);
+            DiagnosticLog.Write("midi-endpoints.log", $"{rootName}: opening loopback connection.");
             if (!connection.Open())
             {
                 throw new InvalidOperationException("Windows MIDI Services could not activate the relay side of the virtual interface.");
             }
 
+            DiagnosticLog.Write("midi-endpoints.log", $"{rootName}: loopback ready.");
             return port;
         }
         catch

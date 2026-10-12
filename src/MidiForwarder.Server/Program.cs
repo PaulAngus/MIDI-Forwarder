@@ -18,6 +18,12 @@ internal static class Program
                 return 0;
             }
 
+            using var instance = ProcessInstance.TryAcquire(@"Local\MidiForwarder.Server");
+            if (instance is null)
+            {
+                DiagnosticLog.Write("server.log", "Server is already running. Use its notification-area icon to open settings.");
+                return 0;
+            }
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
             DiagnosticLog.Write("server.log", "Process exited normally.");
             return 0;

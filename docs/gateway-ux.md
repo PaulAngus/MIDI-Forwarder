@@ -1,73 +1,84 @@
 # Device gateway: design and UI validation
 
 The gateway provides one physical-device writer and a separate virtual port per
-participating app. It supports local and remote apps with the same rules, without
-manufacturer-specific parsing. The server keeps the physical endpoint open while
-running; the client retains its public virtual ports across TCP reconnects.
+participating app. Local and remote apps always share the device. Version 1.0.1
+removes reservation: no app owns the gateway, pauses another route, suppresses
+another app's replies, or rejects connections because another app is active.
 
 ## User workflow and product choices
 
-Configure one distinct public port per app, and select that port for both input and
-output. The server supplies local ports; the client supplies remote ports. Shared
-mode serializes complete messages and broadcasts device replies. Before a bulk
-operation, select its app connection on the server and choose **Reserve device**.
-Choose **Release device** when it finishes. Reservation is manual because the
-gateway cannot infer arbitrary request/reply boundaries or when a device operation
-has finished from ordinary MIDI data.
+Configure distinct public ports for participating apps and select those ports for
+input and output. All routes can send; device replies go to every connected route.
+Complete individual messages are serialized to prevent byte interleaving. The
+forwarder does not lock an entire request/reply exchange or bulk transfer. Apps
+must coordinate transfers when their device protocol requires that.
 
-Other local ports pause; other remote connections close and retry. Discarding their
-commands avoids surprising playback or stale device queries on release. Paused apps
-may time out. Ownership ends on explicit release, owner connection loss or server
-stop. A local app exiting leaves its gateway port alive, so local ownership must be
-released explicitly. There is no automatic time limit for a valid owner.
+Each route has its own receive queue and SysEx assembly. A slow recipient cannot
+hold up other recipients. Disconnecting one route preserves the others' pending
+messages. Direct physical-device apps use Windows MIDI Services shared access;
+other-process endpoint reporting is informational. The forwarder cannot correct
+an operating-system service failure or another application's exclusive legacy API.
 
-Reservations cover gateway routes only. Direct physical-device apps and multiple
-apps sharing one public virtual port bypass this isolation. Other-process endpoint
-reporting is advisory and clearly labelled. It does not imply an exclusive driver
-lock. Wait for existing hardware operations to finish before switching owners;
-commands already accepted by hardware cannot be cancelled by this gateway.
+The desktop server and client each allow one instance per Windows session.
+Start/stop operations are serialized and native MIDI setup runs off the UI thread.
 
 ## Design guidance applied
 
-Current official sources consulted for the changed controls:
+Official guidance consulted for this change:
 
-- [Fluent 2 dropdown guidance](https://fluent2.microsoft.design/components/web/react/core/dropdown/usage)
-  and [Windows combo boxes](https://learn.microsoft.com/en-us/windows/apps/develop/ui/controls/combo-box):
-  a labelled selector for one active connection, with full name available in a tooltip.
-- [Fluent 2 buttons](https://fluent2.microsoft.design/components/web/react/core/button/usage)
-  and [Windows buttons](https://learn.microsoft.com/en-us/windows/apps/develop/ui/controls/buttons):
-  explicit **Reserve device** and **Release device** actions; disabled when unavailable.
-- [Windows text boxes](https://learn.microsoft.com/en-us/windows/apps/develop/ui/controls/text-box):
-  persistent labels and accessible names, with multiline names described as one per line.
-- [Fluent 2 accordion guidance](https://fluent2.microsoft.design/components/web/react/core/accordion/usage)
-  and [Windows expander guidance](https://learn.microsoft.com/en-us/windows/apps/develop/ui/controls/expander):
-  configuration is expanded while stopped and collapses on start, leaving status and
-  active task controls prominent. The user can expand it while running. Connection
-  events do not repeatedly override that choice.
+- [Fluent 2 buttons](https://fluent2.microsoft.design/components/web/react/core/button/usage/):
+  retain clear task labels and remove the obsolete Reserve/Release actions.
+- [Windows keyboard interactions](https://learn.microsoft.com/en-us/windows/apps/develop/input/keyboard-interactions):
+  keep keyboard traversal and visible focus through the remaining controls.
 
-These sources inform the pattern; the implementation uses the existing Avalonia
-Fluent theme and controls rather than WinUI or web components. Manual ownership,
-per-app ports, collapsed active configuration and reconnect behavior are product
-choices, not Microsoft design requirements.
+The existing Avalonia Fluent theme supplies controls, focus indicators and theme
+colours. The Device access section explains Always shared and lists available
+connections without an ownership selector. Labels wrap at narrow widths, main
+content scrolls, and the footer separates Hide to Tray from Start/Stop actions.
+Always-shared routing and per-app ports are product choices, not Microsoft design
+requirements. No new details pane or modal interaction is introduced.
 
-Labels stack above inputs to fit narrow windows. Main content scrolls, while the
-footer remains reachable. **Hide to Tray** is separated from start/stop actions.
-There is no new modal or details pane. Reservation moves keyboard focus to release;
-release returns focus to the connection selector. Status, logs, names and inputs
-have accessible names. Theme foreground/background resources replace fixed dark
-log colours so both light and dark themes remain readable.
+## Validation
 
-## Validation performed
+The checks tool renders actual Avalonia windows using Skia in light and dark
+themes, at server 760x900/client 700x760 and the supported minimum 480x600. It also
+checks keyboard traversal. Rendered previews are under artifacts/shared-access-preview.
 
-`tools/MidiForwarder.Checks` renders the actual windows using Avalonia Headless with
-the Skia renderer. Running and stopped/configuration states were inspected in light
-and dark themes: server 760×900, client 700×760, and both at the supported minimum
-480×600. Narrow content scrolls, and task/dismissal footer controls remain visible.
-Keyboard Tab traversal covers the active selector, release, logs, stop/disconnect,
-hide and configuration controls. This is a rendered layout and keyboard check, not
-a screen-reader certification or an FM9-Edit hardware test.
+Core regression checks cover concurrent connections, broadcast replies, slow
+recipients, disconnect isolation, complete-message ordering and duplicate-instance
+leases. They do not certify screen readers or physical hardware interoperability.
 
-Core regression tests and the native Windows virtual gateway check validate the
-interaction consequences: only the owner sends/receives while reserved, other app
-commands are discarded, release resumes connections without replay, owner loss
-releases access, and physical-send failures terminate affected routes.
+## Service hang investigation and final native validation
+
+The old asymmetric loopback pair (UMP-only Relay, legacy-visible public side)
+reproduced a service-wide stall during endpoint activation. Removing reservations
+and duplicate desktop processes alone did not resolve it. The adapter now pins
+SDK `0.99.88-preview.10` and exposes MIDI 1.0 ports on both sides of a symmetric
+loopback pair. The internal Relay name is truncated to the WinMM length limit;
+users continue selecting the configured public name.
+
+An application-owned virtual-device replacement passed live traffic but stalled
+MidiSrv during disposal. Preset Sender's original virtual-device publisher also
+stalled on shutdown in the combined check. Microsoft's
+[virtual transport shutdown source](https://github.com/microsoft/MIDI/blob/inbox-preview-10/src/in-box/Transport/VirtualMidiTransport/Midi2.VirtualMidiBidi.cpp)
+contains a feature-gated `MIDI2VirtualDeviceRemovalDeadlock` fix. That source is
+consistent with the observed shutdown failure, but does not establish which
+Windows feature flags are enabled on this machine. Both apps therefore use
+explicitly removed symmetric loopback pairs, avoiding that removal path.
+
+On 11 October 2026, the revised combined check passed with the actual published
+Preset Sender and native Forwarder client/server services: both startup orders,
+two independent WinMM receivers on all sixteen channels, three forwarder
+start/stop cycles, four simultaneous routes, interleaved multipart SysEx,
+broadcast replies, continued local traffic after remote disconnect, and clean
+sender shutdown. No physical device or saved configuration was used. The separate
+WinMM/WinRT port visibility and bidirectional Program Change/SysEx check passed.
+The shared-access check passed 400 distinct 16 KiB requests with 200 complete
+1 KiB replies per app, using simultaneous direct WinMM and forwarded traffic.
+All 39 core tests passed. The changed server layouts had already been visually
+inspected at both supported sizes and in both themes; this transport fix makes
+no further layout changes.
+
+The user authorized a temporary elevated helper restricted to restarting
+MidiSrv, with a one-hour expiry. It recovered the service during investigation;
+it is a development recovery tool, not part of either application's runtime.

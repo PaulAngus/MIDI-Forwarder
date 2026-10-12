@@ -32,6 +32,8 @@ internal static class Program
             }
         }
 
+        using var instance = ProcessInstance.TryAcquire(@"Local\MidiForwarder.Client");
+        if (instance is null) { return 0; }
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         return 0;
     }
@@ -55,10 +57,10 @@ internal static class Program
                 await Task.Delay(250).ConfigureAwait(false);
                 DeviceInformationCollection inputs = await DeviceInformation.FindAllAsync(MidiInPort.GetDeviceSelector());
                 DeviceInformationCollection outputs = await DeviceInformation.FindAllAsync(MidiOutPort.GetDeviceSelector());
-                visible = HasOnlyPublicPort(WinMmPortCatalog.GetInputNames(), name)
-                    && HasOnlyPublicPort(WinMmPortCatalog.GetOutputNames(), name)
-                    && HasOnlyPublicPort(inputs.Select(port => port.Name), name)
-                    && HasOnlyPublicPort(outputs.Select(port => port.Name), name);
+                visible = HasExpectedPorts(WinMmPortCatalog.GetInputNames(), name)
+                    && HasExpectedPorts(WinMmPortCatalog.GetOutputNames(), name)
+                    && HasExpectedPorts(inputs.Select(port => port.Name), name)
+                    && HasExpectedPorts(outputs.Select(port => port.Name), name);
                 if (visible)
                 {
                     break;
@@ -67,11 +69,11 @@ internal static class Program
 
             if (!visible)
             {
-                Console.Error.WriteLine("Expected exactly one input and output, without App or Relay suffixes, in WinMM and WinRT MIDI 1.0.");
+                Console.Error.WriteLine("Expected the public port and its internal Relay port in WinMM and WinRT MIDI 1.0.");
                 return 2;
             }
 
-            Console.WriteLine("WinMM and WinRT MIDI 1.0 each expose only the public input and output.");
+            Console.WriteLine("WinMM and WinRT MIDI 1.0 expose the public input/output and its internal Relay pair.");
             await using var appPort = WinMmDuplexPort.Open(name, name);
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             await using var relayMessages = virtualPort.ReadAllAsync(timeout.Token).GetAsyncEnumerator();
@@ -93,8 +95,9 @@ internal static class Program
         }
     }
 
-    private static bool HasOnlyPublicPort(IEnumerable<string> names, string expectedName) =>
-        names.Where(name => name.StartsWith(expectedName, StringComparison.Ordinal)).SequenceEqual([expectedName]);
+    private static bool HasExpectedPorts(IEnumerable<string> names, string expectedName) =>
+        names.Where(name => name.StartsWith(expectedName, StringComparison.Ordinal)).Order(StringComparer.Ordinal)
+            .SequenceEqual(new[] { expectedName, expectedName + " (Relay)" }.Order(StringComparer.Ordinal));
 
     private static async Task CheckMessageAsync(
         IMidiDuplexPort sender,

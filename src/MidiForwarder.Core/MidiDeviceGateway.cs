@@ -2,7 +2,7 @@ using System.Diagnostics;
 
 namespace MidiForwarder.Core;
 
-public sealed record GatewayConnection(string Id, string Name, bool IsNetwork, bool IsPaused, long DiscardedMessages);
+public sealed record GatewayConnection(string Id, string Name, bool IsNetwork);
 
 /// <summary>One physical connection and writer, with a separate receive buffer for each application.</summary>
 public sealed class MidiDeviceGateway : IAsyncDisposable
@@ -16,8 +16,6 @@ public sealed class MidiDeviceGateway : IAsyncDisposable
     private readonly Dictionary<string, GatewayPort> _ports = [];
     private readonly List<(IMidiDuplexPort Port, Task Pump)> _locals = [];
     private readonly Task _deviceReader;
-    private string? _owner;
-    private long _boundary;
     private Exception? _failure;
     private bool _disposed;
 
@@ -30,32 +28,27 @@ public sealed class MidiDeviceGateway : IAsyncDisposable
     }
 
     public event EventHandler? StateChanged;
-    public string? OwnerId { get { lock (_sync) { return _owner; } } }
     public IReadOnlyList<GatewayConnection> Connections
-        => GetState().Connections;
-
-    public (string? OwnerId, IReadOnlyList<GatewayConnection> Connections) GetState()
     {
-        lock (_sync)
+        get
         {
-            return (_owner, _ports.Values.Select(port => new GatewayConnection(port.Id, port.InputName,
-                port.IsNetwork, _owner is not null && _owner != port.Id, port.DiscardedMessages)).ToArray());
+            lock (_sync)
+            {
+                return _ports.Values.Select(port => new GatewayConnection(port.Id, port.InputName, port.IsNetwork)).ToArray();
+            }
         }
     }
 
     public void AddLocalPort(string id, string name, IMidiDuplexPort applicationPort)
     {
         ArgumentNullException.ThrowIfNull(applicationPort);
-        if (applicationPort is not IMidiFlowControlPort)
-        { throw new ArgumentException("A local port must support pausing and clearing received traffic.", nameof(applicationPort)); }
         GatewayPort route;
         lock (_sync)
         {
             EnsureRunning();
-            route = new GatewayPort(this, id, name, false, applicationPort);
+            route = new GatewayPort(this, id, name, false);
             _ports.Add(id, route);
             (applicationPort as IMidiSessionPort)?.BeginSession();
-            route.SetPaused(_owner is not null);
             _locals.Add((applicationPort, RunLocalAsync(route, applicationPort)));
         }
         StateChanged?.Invoke(this, EventArgs.Empty);
@@ -67,52 +60,16 @@ public sealed class MidiDeviceGateway : IAsyncDisposable
         lock (_sync)
         {
             EnsureRunning();
-            if (_owner is not null) { throw new GatewayUnavailableException(); }
-            route = new GatewayPort(this, id, name, true, null);
+            route = new GatewayPort(this, id, name, true);
             _ports.Add(id, route);
         }
         StateChanged?.Invoke(this, EventArgs.Empty);
         return route;
     }
 
-    public async Task ReserveAsync(string? connectionId, CancellationToken token = default)
-    {
-        await _writer.WaitAsync(token).ConfigureAwait(false);
-        try
-        {
-            lock (_sync)
-            {
-                EnsureRunning();
-                if (connectionId is not null && !_ports.ContainsKey(connectionId))
-                { throw new InvalidOperationException("That connection has ended. Choose an active connection."); }
-                if (_owner == connectionId) { return; }
-                ChangeOwner(connectionId);
-            }
-        }
-        finally { _writer.Release(); }
-        _log?.Invoke(connectionId is null ? "Device reservation released. Connections may reconnect." :
-            "Device reserved through the gateway. Other local ports are paused and other network sessions were closed.");
-        StateChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    // Caller holds both the writer and state locks. Never allow old queued commands to cross a reservation boundary.
-    private void ChangeOwner(string? id)
-    {
-        _owner = id;
-        _boundary = Stopwatch.GetTimestamp();
-        foreach (GatewayPort port in _ports.Values.ToArray())
-        {
-            bool paused = id is not null && port.Id != id;
-            if (paused && port.IsNetwork)
-            { _ports.Remove(port.Id); port.Close(); }
-            else { port.SetPaused(paused); }
-        }
-    }
-
     private async ValueTask SendAsync(GatewayPort source, MidiPacket packet, CancellationToken token)
     {
         packet.Validate();
-        long submitted = Stopwatch.GetTimestamp();
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, _stop.Token);
         await _writer.WaitAsync(linked.Token).ConfigureAwait(false);
         try
@@ -122,9 +79,6 @@ public sealed class MidiDeviceGateway : IAsyncDisposable
                 EnsureRunning();
                 if (!_ports.TryGetValue(source.Id, out GatewayPort? current) || !ReferenceEquals(current, source))
                 { throw new IOException("Gateway connection ended."); }
-                if ((_owner is not null && _owner != source.Id) || submitted < _boundary ||
-                    (packet.EnqueuedTimestamp > 0 && packet.EnqueuedTimestamp < _boundary))
-                { source.DiscardedMessages++; return; }
             }
             long started = Stopwatch.GetTimestamp();
             try { await _device.SendAsync(packet, linked.Token).ConfigureAwait(false); }
@@ -150,7 +104,7 @@ public sealed class MidiDeviceGateway : IAsyncDisposable
                 lock (_sync)
                 {
                     foreach (GatewayPort port in _ports.Values)
-                    { if (_owner is null || _owner == port.Id) { port.Receive(packet); } }
+                    { port.Receive(packet); }
                 }
                 _diagnostics?.Record("device-to-gateway", packet, Stopwatch.GetElapsedTime(started).TotalMilliseconds,
                     (_device as IMidiSessionPort)?.ReceiveStatistics);
@@ -183,15 +137,10 @@ public sealed class MidiDeviceGateway : IAsyncDisposable
         }
     }
 
-    private async Task ForwardAsync(IMidiDuplexPort input, IMidiDuplexPort output, CancellationToken token)
+    private static async Task ForwardAsync(IMidiDuplexPort input, IMidiDuplexPort output, CancellationToken token)
     {
         await foreach (MidiPacket packet in input.ReadAllAsync(token).ConfigureAwait(false))
         {
-            if (input is GatewayPort route)
-            {
-                lock (_sync)
-                { if ((_owner is not null && _owner != route.Id) || packet.EnqueuedTimestamp < _boundary) { continue; } }
-            }
             await output.SendAsync(packet, token).ConfigureAwait(false);
         }
     }
@@ -207,7 +156,6 @@ public sealed class MidiDeviceGateway : IAsyncDisposable
                 changed = _ports.TryGetValue(port.Id, out var current) && ReferenceEquals(current, port);
                 if (changed) { _ports.Remove(port.Id); }
                 port.Close();
-                if (_owner == port.Id) { ChangeOwner(null); _log?.Invoke("Reservation released because its connection ended."); }
             }
         }
         finally { _writer.Release(); }
@@ -257,13 +205,11 @@ public sealed class MidiDeviceGateway : IAsyncDisposable
         _stop.Dispose();
     }
 
-    private sealed class GatewayPort(MidiDeviceGateway gateway, string id, string name, bool isNetwork,
-        IMidiDuplexPort? local) : IMidiDuplexPort, IMidiSessionPort
+    private sealed class GatewayPort(MidiDeviceGateway gateway, string id, string name, bool isNetwork) : IMidiDuplexPort, IMidiSessionPort
     {
         private readonly MidiReceiveBuffer _receive = new();
         public string Id { get; } = id;
         public bool IsNetwork { get; } = isNetwork;
-        public long DiscardedMessages { get; set; }
         public string InputName { get; } = name;
         public string OutputName => InputName;
         public MidiQueueStatistics ReceiveStatistics => _receive.Statistics;
@@ -271,8 +217,6 @@ public sealed class MidiDeviceGateway : IAsyncDisposable
         public void EndSession() => _receive.EndSession();
         public void Receive(MidiPacket packet) => _receive.Publish(packet);
         public void Close() => _receive.Close();
-        public void SetPaused(bool paused)
-        { _receive.SetPaused(paused); (local as IMidiFlowControlPort)?.SetPaused(paused); }
         public IAsyncEnumerable<MidiPacket> ReadAllAsync(CancellationToken token) => _receive.ReadAllAsync(token);
         public ValueTask SendAsync(MidiPacket packet, CancellationToken token) => gateway.SendAsync(this, packet, token);
         public ValueTask DisposeAsync() => gateway.RemoveAsync(this);

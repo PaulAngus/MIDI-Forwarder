@@ -7,11 +7,13 @@ using MidiForwarder.Midi.WindowsServices;
 
 namespace MidiForwarder.Server;
 
-public sealed record GatewayState(string? OwnerId, IReadOnlyList<GatewayConnection> Connections, string DirectAccessStatus);
+public sealed record GatewayState(IReadOnlyList<GatewayConnection> Connections, string DirectAccessStatus);
 
 public sealed class ServerRelayService : IAsyncDisposable
 {
     private readonly SemaphoreSlim _clientGate = new(8, 8);
+    private readonly SemaphoreSlim _lifecycle = new(1, 1);
+    private bool _disposed;
     private readonly ConcurrentDictionary<long, Task> _clients = new();
     private CancellationTokenSource? _cancellation;
     private TcpListener? _listener;
@@ -30,12 +32,22 @@ public sealed class ServerRelayService : IAsyncDisposable
         get
         {
             MidiDeviceGateway? gateway = _gateway;
-            var snapshot = gateway?.GetState();
-            return new GatewayState(snapshot?.OwnerId, snapshot?.Connections ?? [], _directAccessStatus);
+            return new GatewayState(gateway?.Connections ?? [], _directAccessStatus);
         }
     }
 
     public async Task StartAsync(ServerSettings settings, CancellationToken cancellationToken = default)
+    {
+        await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            await Task.Run(() => StartCoreAsync(settings, cancellationToken), cancellationToken).ConfigureAwait(false);
+        }
+        finally { _lifecycle.Release(); }
+    }
+
+    private async Task StartCoreAsync(ServerSettings settings, CancellationToken cancellationToken)
     {
         if (IsRunning) { return; }
         Validate(settings);
@@ -72,10 +84,14 @@ public sealed class ServerRelayService : IAsyncDisposable
         }
     }
 
-    public Task ReserveAsync(string? connectionId, CancellationToken token = default) =>
-        (_gateway ?? throw new InvalidOperationException("Start the server first.")).ReserveAsync(connectionId, token);
-
     public async Task StopAsync()
+    {
+        await _lifecycle.WaitAsync().ConfigureAwait(false);
+        try { await Task.Run(StopCoreAsync).ConfigureAwait(false); }
+        finally { _lifecycle.Release(); }
+    }
+
+    private async Task StopCoreAsync()
     {
         CancellationTokenSource? cancellation = Interlocked.Exchange(ref _cancellation, null);
         TcpListener? listener = Interlocked.Exchange(ref _listener, null);
@@ -107,8 +123,15 @@ public sealed class ServerRelayService : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await StopAsync().ConfigureAwait(false);
-        _clientGate.Dispose();
+        await _lifecycle.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_disposed) { return; }
+            _disposed = true;
+            await Task.Run(StopCoreAsync).ConfigureAwait(false);
+            _clientGate.Dispose();
+        }
+        finally { _lifecycle.Release(); }
     }
 
     private async Task AcceptClientsAsync(TcpListener listener, string token, MidiDeviceGateway gateway, CancellationToken cancellationToken)
@@ -145,9 +168,7 @@ public sealed class ServerRelayService : IAsyncDisposable
                 if (interfaceName is null)
                 { WriteLog("Rejected a client with an invalid token or protocol."); return; }
                 string name = string.IsNullOrEmpty(interfaceName) ? $"Remote connection {id}" : $"Remote: {interfaceName}";
-                try { route = gateway.AddNetworkConnection("remote-" + id, $"{name} ({client.Client.RemoteEndPoint})"); }
-                catch (GatewayUnavailableException)
-                { await TcpAuthentication.RejectBusyAsync(stream, timeout.Token).ConfigureAwait(false); return; }
+                route = gateway.AddNetworkConnection("remote-" + id, $"{name} ({client.Client.RemoteEndPoint})");
                 await TcpAuthentication.AcceptAsync(stream, timeout.Token).ConfigureAwait(false);
                 WriteLog($"{route.InputName} connected to the gateway.");
                 await using var diagnostics = new TransportDiagnostics(DiagnosticLog.GetPath("server-transport.jsonl"));
@@ -177,7 +198,7 @@ public sealed class ServerRelayService : IAsyncDisposable
                 {
                     IReadOnlyList<string> sessions = physical.GetOtherSessionNames();
                     status = sessions.Count == 0 ? "No other Windows MIDI Services sessions detected on the physical device." :
-                        $"Direct device access: {string.Join(", ", sessions)}. Reservations only cover gateway ports.";
+                        $"Direct device access: {string.Join(", ", sessions)}. MIDI forwarding remains shared.";
                 }
                 catch (Exception error) when (error is COMException or InvalidOperationException or NotSupportedException)
                 { status = "Other apps' direct device access could not be checked on this Windows MIDI Services version."; }

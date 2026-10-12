@@ -18,8 +18,26 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        if (args is ["--sender-coexistence", string senderExe])
+        {
+            Task.Run(() => SenderCoexistenceCheck.RunAsync(senderExe)).WaitAsync(TimeSpan.FromSeconds(60)).GetAwaiter().GetResult();
+            return 0;
+        }
+        if (args.Contains("--fm9-access", StringComparer.Ordinal))
+        {
+            Task.Run(() => Fm9AccessCheck.RunAsync(args.Contains("--ump", StringComparer.Ordinal),
+                args.Contains("--with-server", StringComparer.Ordinal))).WaitAsync(TimeSpan.FromSeconds(45)).GetAwaiter().GetResult();
+            return 0;
+        }
+        if (args.Contains("--shared-access", StringComparer.Ordinal))
+        {
+            Task.Run(() => VirtualGatewayCheck.CheckSharedAccessAsync(
+                large: args.Contains("--large", StringComparer.Ordinal),
+                forwarded: !args.Contains("--direct-only", StringComparer.Ordinal))).WaitAsync(TimeSpan.FromSeconds(45)).GetAwaiter().GetResult();
+            return 0;
+        }
         if (args.Contains("--virtual-gateway", StringComparer.Ordinal))
-        { VirtualGatewayCheck.RunAsync().GetAwaiter().GetResult(); return 0; }
+        { Task.Run(VirtualGatewayCheck.RunAsync).WaitAsync(TimeSpan.FromSeconds(45)).GetAwaiter().GetResult(); return 0; }
         string directory = Path.GetFullPath(args.FirstOrDefault() ?? "artifacts/gateway-preview");
         Directory.CreateDirectory(directory);
         AppBuilder.Configure<PreviewApp>().UseSkia()
@@ -28,15 +46,15 @@ internal static class Program
         using var clientService = new AsyncServiceScope<ClientRelayService>(new ClientRelayService());
         var server = new ServerWindow(serverService.Value, preview: true);
         var client = new ClientWindow(clientService.Value, preview: true);
-        server.SetPreviewState(new GatewayState("remote", [
-            new GatewayConnection("local-a", "MIDI Gateway 1", false, true, 0),
-            new GatewayConnection("local-b", "MIDI Gateway 2", false, true, 0),
-            new GatewayConnection("remote", "Remote: MIDI Forwarder (192.0.2.10:51800)", true, false, 0)],
-            "Direct device access: Another MIDI app (PID 123). Reservations only cover gateway ports."));
-        client.SetPreviewState("MIDI Forwarder: Connected\nMIDI Editor: Waiting for device access; retry in 2s");
+        server.SetPreviewState(new GatewayState([
+            new GatewayConnection("local-a", "MIDI Gateway 1", false),
+            new GatewayConnection("local-b", "MIDI Gateway 2", false),
+            new GatewayConnection("remote", "Remote: MIDI Forwarder (192.0.2.10:51800)", true)],
+            "Direct device access: Another MIDI app (PID 123). MIDI forwarding remains shared."));
+        client.SetPreviewState("MIDI Forwarder: Connected\nMIDI Editor: Connected");
         Capture(server, "server", directory);
         Capture(client, "client", directory);
-        server.SetPreviewState(new GatewayState(null, [], "Direct device access has not been checked."), running: false);
+        server.SetPreviewState(new GatewayState([], "Direct device access has not been checked."), running: false);
         client.SetPreviewState("Stopped", running: false);
         CaptureConfiguration(server, "server", directory);
         CaptureConfiguration(client, "client", directory);
