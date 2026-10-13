@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="src/MidiForwarder.Core/MidiForwarder.Core.csproj" />
+  <Project Path="src/MidiForwarder.Midi.CoreMidi/MidiForwarder.Midi.CoreMidi.csproj" />
+  <Project Path="src/MidiForwarder.Client.Mac/MidiForwarder.Client.Mac.csproj" />
+  <Project Path="src/MidiForwarder.Server.Mac/MidiForwarder.Server.Mac.csproj" />
+  <Project Path="tests/MidiForwarder.CoreMidi.Tests/MidiForwarder.CoreMidi.Tests.csproj" />
+</Solution>

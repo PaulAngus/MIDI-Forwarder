@@ -16,3 +16,8 @@ To populate it on a new machine:
 3. Run `dotnet restore` from the repo root.
 
 This folder is git-ignored; the `.nupkg` file itself is never committed.
+
+Apple Silicon builds also cache RtMidi's CoreMIDI library under
+`rtmidi/6.0.0/osx-arm64`. Run `tools/Get-MacMidiDependency.ps1` to download
+and verify it, or let `tools/Publish-Mac.ps1` do this automatically. The pinned
+Homebrew bottle includes its MIT license and requires macOS 15 or later.

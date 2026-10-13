@@ -1,7 +1,12 @@
 using System.Net;
 using System.Net.Sockets;
 using MidiForwarder.Core;
+#if MACOS
+using PhysicalMidiEndpointDuplexPort = MidiForwarder.Midi.CoreMidi.CoreMidiDuplexPort;
+using PhysicalMidiEndpointCatalog = MidiForwarder.Midi.CoreMidi.CoreMidiPortCatalog;
+#else
 using MidiForwarder.Midi.WindowsServices;
+#endif
 
 namespace MidiForwarder.Server;
 

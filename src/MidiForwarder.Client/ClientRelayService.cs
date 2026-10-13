@@ -1,6 +1,10 @@
 using System.Net.Sockets;
 using MidiForwarder.Core;
+#if MACOS
+using WindowsMidiServicesDuplexPort = MidiForwarder.Midi.CoreMidi.CoreMidiDuplexPort;
+#else
 using MidiForwarder.Midi.WindowsServices;
+#endif
 
 namespace MidiForwarder.Client;
 
@@ -29,7 +33,11 @@ public sealed class ClientRelayService : IAsyncDisposable
         }
 
         Uri serverUri = TcpEndpoint.Parse(settings.ServerUri);
+#if MACOS
+        WindowsMidiServicesDuplexPort midi = WindowsMidiServicesDuplexPort.OpenVirtual(settings.InterfaceName);
+#else
         WindowsMidiServicesDuplexPort midi = WindowsMidiServicesDuplexPort.Open(settings.InterfaceName);
+#endif
         var cancellation = new CancellationTokenSource();
         _midi = midi;
         _cancellation = cancellation;

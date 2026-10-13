@@ -1,0 +1,34 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>false</IncludeAllContentForSelfExtract>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <EnableMacOSCodeSign>false</EnableMacOSCodeSign>
+    <DefineConstants>$(DefineConstants);MACOS</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../MidiForwarder.Core/MidiForwarder.Core.csproj" />
+    <ProjectReference Include="../MidiForwarder.Midi.CoreMidi/MidiForwarder.Midi.CoreMidi.csproj" />
+    <PackageReference Include="Avalonia" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Native" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Skia" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3" />
+    <Compile Include="../../tools/MacProgram.cs" Link="Program.cs" />
+  </ItemGroup>
+  <Target Name="CopyMacNativeLibraries" AfterTargets="Publish">
+    <ItemGroup>
+      <MacNativeLibrary Include="$(NuGetPackageRoot)avalonia.native/11.2.3/runtimes/osx/native/libAvaloniaNative.dylib" />
+      <MacNativeLibrary Include="$(NuGetPackageRoot)harfbuzzsharp.nativeassets.macos/7.3.0.3/runtimes/osx/native/libHarfBuzzSharp.dylib" />
+      <MacNativeLibrary Include="$(NuGetPackageRoot)skiasharp.nativeassets.macos/2.88.9/runtimes/osx/native/libSkiaSharp.dylib" />
+      <MacNativeLibrary Include="$(MSBuildThisFileDirectory)../local-packages/rtmidi/6.0.0/osx-arm64/librtmidi.7.dylib" />
+    </ItemGroup>
+    <!-- Keep sidecars present even when an incremental single-file publish skips copying runtime assets. -->
+    <Copy SourceFiles="@(MacNativeLibrary)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

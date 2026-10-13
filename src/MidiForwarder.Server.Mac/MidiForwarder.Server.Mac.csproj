@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../../tools/MacApp.props" />
+  <PropertyGroup>
+    <AssemblyName>MidiForwarder.Server</AssemblyName>
+    <PublishDir>../../publish/macos-arm64/server/</PublishDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../MidiForwarder.Server/*.cs" Exclude="../MidiForwarder.Server/Program.cs" Link="%(Filename)%(Extension)" />
+    <AvaloniaResource Include="../../assets/midi-forwarder.ico" Link="Assets/midi-forwarder.ico" />
+  </ItemGroup>
+</Project>

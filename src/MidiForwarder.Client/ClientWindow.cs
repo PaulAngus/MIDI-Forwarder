@@ -3,7 +3,11 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Threading;
 using MidiForwarder.Core;
+#if MACOS
+using WindowsStartupRegistration = MidiForwarder.Midi.CoreMidi.MacStartupRegistration;
+#else
 using MidiForwarder.Midi.WinMM;
+#endif
 using System.Diagnostics.CodeAnalysis;
 
 namespace MidiForwarder.Client;
@@ -16,7 +20,11 @@ public sealed class ClientWindow : Window
     private readonly TextBox _interfaceName = new();
     private readonly TextBox _serverUri = new();
     private readonly TextBox _token = new();
+#if MACOS
+    private readonly CheckBox _startWithWindows = new() { Content = "Start at login" };
+#else
     private readonly CheckBox _startWithWindows = new() { Content = "Start automatically with Windows" };
+#endif
     private readonly TextBlock _status = new() { Text = "Stopped" };
     private readonly TextBox _log = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
     private readonly Button _startButton = new() { Content = "Save and Connect" };
@@ -100,7 +108,7 @@ public sealed class ClientWindow : Window
         Grid.SetColumn(_startWithWindows, 1);
         form.Children.Add(_startWithWindows);
 
-        var hideButton = new Button { Content = "Hide to Tray" };
+        var hideButton = new Button { Content = OperatingSystem.IsMacOS() ? "Hide" : "Hide to Tray" };
         hideButton.Click += (_, _) => Hide();
         var buttons = new StackPanel
         {

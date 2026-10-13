@@ -1,0 +1,86 @@
+param([switch]$SkipBuild)
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$outputRoot = Join-Path $repoRoot 'publish/macos-arm64'
+$bundleRoot = Join-Path $outputRoot 'MIDI Forwarder Apple Silicon'
+
+& (Join-Path $PSScriptRoot 'Get-MacMidiDependency.ps1')
+if (-not $SkipBuild) {
+    foreach ($role in @('Client', 'Server')) {
+        $project = Join-Path $repoRoot "src/MidiForwarder.$role.Mac/MidiForwarder.$role.Mac.csproj"
+        dotnet publish $project -c Release --configfile (Join-Path $repoRoot 'NuGet.Config')
+        if ($LASTEXITCODE -ne 0) {
+            throw "The macOS $role build failed."
+        }
+    }
+}
+
+New-Item -ItemType Directory -Path $bundleRoot -Force | Out-Null
+foreach ($role in @('Client', 'Server')) {
+    $publishFolder = Join-Path $outputRoot $role.ToLowerInvariant()
+    $appFolder = Join-Path $bundleRoot "MIDI Forwarder $role.app"
+    $contentsFolder = Join-Path $appFolder 'Contents'
+    $binaryFolder = Join-Path $contentsFolder 'MacOS'
+    $resourceFolder = Join-Path $contentsFolder 'Resources'
+    New-Item -ItemType Directory -Path $binaryFolder, $resourceFolder -Force | Out-Null
+    foreach ($fileName in @("MidiForwarder.$role", 'libAvaloniaNative.dylib', 'libHarfBuzzSharp.dylib', 'libSkiaSharp.dylib', 'librtmidi.7.dylib')) {
+        Copy-Item -LiteralPath (Join-Path $publishFolder $fileName) -Destination $binaryFolder -Force
+    }
+    foreach ($nativeLibrary in Get-ChildItem -LiteralPath $publishFolder -Filter '*.dylib') {
+        Copy-Item -LiteralPath $nativeLibrary.FullName -Destination $binaryFolder -Force
+    }
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'THIRD-PARTY-NOTICES.md') -Destination $resourceFolder -Force
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'local-packages/rtmidi/6.0.0/osx-arm64/LICENSE') -Destination (Join-Path $resourceFolder 'RtMidi-LICENSE') -Force
+
+    $plist = [System.Xml.Linq.XElement]::new('plist', [System.Xml.Linq.XAttribute]::new('version', '1.0'))
+    $dictionary = [System.Xml.Linq.XElement]::new([System.Xml.Linq.XName]::Get('dict'))
+    $properties = [ordered]@{
+        CFBundleExecutable = "MidiForwarder.$role"
+        CFBundleName = "MIDI Fwd $role"
+        CFBundleDisplayName = "MIDI Forwarder $role"
+        CFBundleIdentifier = "org.midiforwarder.$($role.ToLowerInvariant())"
+        CFBundlePackageType = 'APPL'
+        CFBundleVersion = '1.0.0'
+        CFBundleShortVersionString = '1.0.0'
+        LSMinimumSystemVersion = '15.0'
+    }
+    foreach ($property in $properties.GetEnumerator()) {
+        $dictionary.Add([System.Xml.Linq.XElement]::new('key', $property.Key))
+        $dictionary.Add([System.Xml.Linq.XElement]::new('string', $property.Value))
+    }
+    $dictionary.Add([System.Xml.Linq.XElement]::new('key', 'NSHighResolutionCapable'))
+    $dictionary.Add([System.Xml.Linq.XElement]::new([System.Xml.Linq.XName]::Get('true')))
+    $plist.Add($dictionary)
+    $document = [System.Xml.Linq.XDocument]::new([System.Xml.Linq.XDeclaration]::new('1.0', 'UTF-8', $null),
+        [System.Xml.Linq.XDocumentType]::new('plist', '-//Apple//DTD PLIST 1.0//EN', 'http://www.apple.com/DTDs/PropertyList-1.0.dtd', $null), $plist)
+    $document.Save((Join-Path $contentsFolder 'Info.plist'))
+}
+
+$prepareScript = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Prepare-Mac-Apps.command')).Replace("`r`n", "`n")
+[System.IO.File]::WriteAllText((Join-Path $bundleRoot 'Prepare-Mac-Apps.command'), $prepareScript, [System.Text.UTF8Encoding]::new($false))
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Mac-README.txt') -Destination (Join-Path $bundleRoot 'README.txt') -Force
+& (Join-Path $PSScriptRoot 'Verify-MacPackage.ps1')
+
+# Tar preserves Unix executable permissions when this packaging script runs on Windows.
+Add-Type -AssemblyName System.Formats.Tar
+$archive = Join-Path $outputRoot 'MIDI-Forwarder-macos-arm64.tar.gz'
+$fileStream = [System.IO.File]::Create($archive)
+$gzip = [System.IO.Compression.GZipStream]::new($fileStream, [System.IO.Compression.CompressionLevel]::Optimal)
+$writer = [System.Formats.Tar.TarWriter]::new($gzip, $true)
+try {
+    foreach ($file in Get-ChildItem -LiteralPath $bundleRoot -Recurse -File) {
+        $relativePath = [System.IO.Path]::GetRelativePath($outputRoot, $file.FullName).Replace('\', '/')
+        $entry = [System.Formats.Tar.PaxTarEntry]::new([System.Formats.Tar.TarEntryType]::RegularFile, $relativePath)
+        $executable = $file.Name -eq 'Prepare-Mac-Apps.command' -or ($file.Directory.Name -eq 'MacOS' -and $file.Extension -ne '.dylib')
+        $entry.Mode = [System.IO.UnixFileMode]$(if ($executable) { 493 } else { 420 })
+        $entry.DataStream = [System.IO.File]::OpenRead($file.FullName)
+        try { $writer.WriteEntry($entry) } finally { $entry.DataStream.Dispose() }
+    }
+} finally {
+    $writer.Dispose()
+    $gzip.Dispose()
+    $fileStream.Dispose()
+}
+Write-Host "Packaged Apple Silicon apps: $archive"

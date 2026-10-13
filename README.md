@@ -236,6 +236,35 @@ adapter references `NAudio.WinMM` instead of the full audio/WinForms package.
 The executables still include the .NET runtime and Windows MIDI Services SDK.
 Build output (`bin`, `obj`, and `publish`) is ignored by Git.
 
+## Apple Silicon builds
+
+The macOS client and server use RtMidi's CoreMIDI backend with the same TCP
+protocol as the Windows applications. They require macOS 15 (Sequoia) or later.
+The client creates a virtual input and output; the server lists devices with
+matching CoreMIDI input/output names. These builds support MIDI 1.0, including
+MIDI clock and SysEx, and decode MIDI 1.0 UMP/SysEx7 from Windows peers.
+MIDI 2.0 channel messages and SysEx8 are not supported by the Mac backend.
+
+Build and package both self-contained Apple Silicon apps from PowerShell:
+
+```powershell
+.\tools\Publish-Mac.ps1
+dotnet restore .\MIDI-Forwarder.Mac.slnx --configfile .\NuGet.Config
+dotnet test .\MIDI-Forwarder.Mac.slnx -c Release --no-restore
+```
+
+The script downloads the SHA-256-pinned RtMidi native library, publishes the
+`osx-arm64` applications, and creates
+`publish/macos-arm64/MIDI-Forwarder-macos-arm64.tar.gz`. Extract it on a Mac
+and follow its `README.txt` to prepare and locally sign both `.app` bundles.
+The archive preserves executable permissions. No .NET or Homebrew installation
+is needed to run the apps. Windows cross-builds cannot be tested or notarized
+on this machine; run `--check-virtual-midi` on the Mac before hardware testing.
+
+The macOS UI uses **Start at login** and stores per-user LaunchAgents under
+`~/Library/LaunchAgents`. Configure this after moving the apps to their final
+location. The menu-bar icon provides settings, stop and exit commands.
+
 ## Repository layout
 
 ```text

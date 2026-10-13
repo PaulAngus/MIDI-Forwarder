@@ -3,8 +3,13 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Threading;
 using MidiForwarder.Core;
+#if MACOS
+using WindowsStartupRegistration = MidiForwarder.Midi.CoreMidi.MacStartupRegistration;
+using PhysicalMidiEndpointCatalog = MidiForwarder.Midi.CoreMidi.CoreMidiPortCatalog;
+#else
 using MidiForwarder.Midi.WinMM;
 using MidiForwarder.Midi.WindowsServices;
+#endif
 using System.Diagnostics.CodeAnalysis;
 
 namespace MidiForwarder.Server;
@@ -17,7 +22,11 @@ public sealed class ServerWindow : Window
     private readonly ComboBox _midiEndpoint = new();
     private readonly TextBox _listenUrl = new();
     private readonly TextBox _token = new();
+#if MACOS
+    private readonly CheckBox _startWithWindows = new() { Content = "Start at login" };
+#else
     private readonly CheckBox _startWithWindows = new() { Content = "Start automatically with Windows" };
+#endif
     private readonly TextBlock _status = new() { Text = "Stopped" };
     private readonly TextBox _log = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
     private readonly Button _startButton = new() { Content = "Save and Start" };
@@ -98,7 +107,7 @@ public sealed class ServerWindow : Window
 
         var refreshButton = new Button { Content = "Refresh MIDI Endpoints" };
         refreshButton.Click += (_, _) => RefreshPorts();
-        var hideButton = new Button { Content = "Hide to Tray" };
+        var hideButton = new Button { Content = OperatingSystem.IsMacOS() ? "Hide" : "Hide to Tray" };
         hideButton.Click += (_, _) => Hide();
         var buttons = new StackPanel
         {
