@@ -274,7 +274,7 @@ src/MidiForwarder.Midi.WindowsServices/ virtual loopback and UMP/MIDI 1.0 conver
 src/MidiForwarder.Server/               server UI, listener, and relay lifecycle
 src/MidiForwarder.Client/               client UI, reconnect loop, and tray lifecycle
 tests/MidiForwarder.Core.Tests/         framing, codec, and bridge tests
-assets/                                 application icon
+assets/                                 application icon (.ico for Windows, .icns for macOS)
 local-packages/                         pinned offline restore packages
 THIRD-PARTY-NOTICES.md                  dependency license summary
 ```

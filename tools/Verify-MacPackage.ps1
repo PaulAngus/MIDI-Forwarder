@@ -65,6 +65,10 @@ foreach ($role in @('Client', 'Server')) {
     if ($properties['CFBundleExecutable'] -ne "MidiForwarder.$role" -or $properties['LSMinimumSystemVersion'] -ne '15.0') {
         throw "Incorrect macOS bundle metadata for $role."
     }
+    if ($properties['CFBundleIconFile'] -ne 'midi-forwarder' -or
+        -not (Test-Path -LiteralPath (Join-Path $contents 'Resources/midi-forwarder.icns'))) {
+        throw "Missing application icon for $role."
+    }
     foreach ($binary in Get-ChildItem -LiteralPath (Join-Path $contents 'MacOS') -File) {
         Test-Arm64Binary $binary.FullName
     }

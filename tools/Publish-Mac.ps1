@@ -31,6 +31,7 @@ foreach ($role in @('Client', 'Server')) {
     foreach ($nativeLibrary in Get-ChildItem -LiteralPath $publishFolder -Filter '*.dylib') {
         Copy-Item -LiteralPath $nativeLibrary.FullName -Destination $binaryFolder -Force
     }
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'assets/midi-forwarder.icns') -Destination $resourceFolder -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'THIRD-PARTY-NOTICES.md') -Destination $resourceFolder -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'local-packages/rtmidi/6.0.0/osx-arm64/LICENSE') -Destination (Join-Path $resourceFolder 'RtMidi-LICENSE') -Force
 
@@ -38,6 +39,7 @@ foreach ($role in @('Client', 'Server')) {
     $dictionary = [System.Xml.Linq.XElement]::new([System.Xml.Linq.XName]::Get('dict'))
     $properties = [ordered]@{
         CFBundleExecutable = "MidiForwarder.$role"
+        CFBundleIconFile = 'midi-forwarder'
         CFBundleName = "MIDI Fwd $role"
         CFBundleDisplayName = "MIDI Forwarder $role"
         CFBundleIdentifier = "org.midiforwarder.$($role.ToLowerInvariant())"
@@ -51,6 +53,9 @@ foreach ($role in @('Client', 'Server')) {
         $dictionary.Add([System.Xml.Linq.XElement]::new('string', $property.Value))
     }
     $dictionary.Add([System.Xml.Linq.XElement]::new('key', 'NSHighResolutionCapable'))
+    $dictionary.Add([System.Xml.Linq.XElement]::new([System.Xml.Linq.XName]::Get('true')))
+    # Menu-bar relays with hidden windows must not be throttled by App Nap while forwarding MIDI.
+    $dictionary.Add([System.Xml.Linq.XElement]::new('key', 'LSAppNapIsDisabled'))
     $dictionary.Add([System.Xml.Linq.XElement]::new([System.Xml.Linq.XName]::Get('true')))
     $plist.Add($dictionary)
     $document = [System.Xml.Linq.XDocument]::new([System.Xml.Linq.XDeclaration]::new('1.0', 'UTF-8', $null), $plist)

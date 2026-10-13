@@ -33,11 +33,15 @@ public static class TcpMidiBridge
     {
         packet.Validate();
         ReadOnlyMemory<byte> message = packet.Data;
-        byte[] header = new byte[sizeof(int) + 1];
-        BinaryPrimitives.WriteInt32BigEndian(header, checked(message.Length + 1));
-        header[sizeof(int)] = (byte)packet.Format;
-        await stream.WriteAsync(header, cancellationToken).ConfigureAwait(false);
-        await stream.WriteAsync(message, cancellationToken).ConfigureAwait(false);
+        const int headerLength = sizeof(int) + 1;
+
+        // One write per frame keeps small MIDI messages in a single TCP segment (TCP_NODELAY would otherwise
+        // send the header and payload separately, doubling packets on Wi-Fi).
+        byte[] frame = new byte[headerLength + message.Length];
+        BinaryPrimitives.WriteInt32BigEndian(frame, checked(message.Length + 1));
+        frame[sizeof(int)] = (byte)packet.Format;
+        message.CopyTo(frame.AsMemory(headerLength));
+        await stream.WriteAsync(frame, cancellationToken).ConfigureAwait(false);
     }
 
     public static async Task<MidiPacket?> ReadFrameAsync(Stream stream, CancellationToken cancellationToken)
@@ -65,11 +69,14 @@ public static class TcpMidiBridge
         Action<string>? log,
         CancellationToken cancellationToken)
     {
+        var summary = new TrafficSummary("MIDI -> network", log);
         await foreach (MidiPacket packet in midi.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
             await WriteFrameAsync(stream, packet, cancellationToken).ConfigureAwait(false);
-            log?.Invoke($"MIDI -> network: {packet.Data.Length} byte(s), {packet.Format}");
+            summary.Add(packet.Data.Length);
         }
+
+        summary.Flush();
     }
 
     private static async Task PumpNetworkToMidiAsync(
@@ -78,17 +85,20 @@ public static class TcpMidiBridge
         Action<string>? log,
         CancellationToken cancellationToken)
     {
+        var summary = new TrafficSummary("Network -> MIDI", log);
         while (!cancellationToken.IsCancellationRequested)
         {
             MidiPacket? packet = await ReadFrameAsync(stream, cancellationToken).ConfigureAwait(false);
             if (packet is null)
             {
-                return;
+                break;
             }
 
             await midi.SendAsync(packet.Value, cancellationToken).ConfigureAwait(false);
-            log?.Invoke($"Network -> MIDI: {packet.Value.Data.Length} byte(s), {packet.Value.Format}");
+            summary.Add(packet.Value.Data.Length);
         }
+
+        summary.Flush();
     }
 
     private static async Task<bool> ReadExactlyOrEndAsync(
@@ -114,5 +124,36 @@ public static class TcpMidiBridge
         }
 
         return true;
+    }
+
+    // Per-message logging made the UI log (and the server's log file) a bottleneck during bulk SysEx transfers.
+    private sealed class TrafficSummary(string direction, Action<string>? log)
+    {
+        private static readonly long Interval = System.Diagnostics.Stopwatch.Frequency;
+        private long _last = System.Diagnostics.Stopwatch.GetTimestamp();
+        private int _messages;
+        private long _bytes;
+
+        public void Add(int length)
+        {
+            _messages++;
+            _bytes += length;
+            if (System.Diagnostics.Stopwatch.GetTimestamp() - _last >= Interval)
+            {
+                Flush();
+            }
+        }
+
+        public void Flush()
+        {
+            if (_messages > 0)
+            {
+                log?.Invoke($"{direction}: {_messages} message(s), {_bytes} byte(s)");
+            }
+
+            _messages = 0;
+            _bytes = 0;
+            _last = System.Diagnostics.Stopwatch.GetTimestamp();
+        }
     }
 }
