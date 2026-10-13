@@ -8,13 +8,14 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace MidiForwarder.Client;
 
-[SuppressMessage("Design", "CA1001", Justification = "Resources are disposed by the explicit Exit command.")]
+[SuppressMessage("Design", "CA1001", Justification = "Resources are disposed by the explicit Quit command.")]
 public sealed class App : Application
 {
     private ClientRelayService? _service;
     private ClientWindow? _window;
     private TrayIcon? _trayIcon;
     private IClassicDesktopStyleApplicationLifetime? _desktop;
+    private Task? _quitTask;
 
     public override void Initialize()
     {
@@ -29,6 +30,7 @@ public sealed class App : Application
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             _service = new ClientRelayService();
             _window = new ClientWindow(_service);
+            _window.QuitRequested += (_, _) => _ = QuitAsync();
             desktop.MainWindow = _window;
             CreateTrayIcon();
             Dispatcher.UIThread.Post(async () =>
@@ -55,13 +57,13 @@ public sealed class App : Application
         open.Click += (_, _) => _window?.ShowConfiguration();
         var stop = new NativeMenuItem("Disconnect");
         stop.Click += (_, _) => _ = _window?.StopAsync();
-        var exit = new NativeMenuItem("Exit");
-        exit.Click += (_, _) => _ = ExitAsync();
+        var quit = new NativeMenuItem("Quit");
+        quit.Click += (_, _) => _ = QuitAsync();
         var menu = new NativeMenu();
         menu.Items.Add(open);
         menu.Items.Add(stop);
         menu.Items.Add(new NativeMenuItemSeparator());
-        menu.Items.Add(exit);
+        menu.Items.Add(quit);
         _trayIcon = new TrayIcon
         {
             Icon = icon,
@@ -73,19 +75,27 @@ public sealed class App : Application
         TrayIcon.SetIcons(this, new TrayIcons { _trayIcon });
     }
 
-    private async Task ExitAsync()
+    private Task QuitAsync() => _quitTask ??= QuitCoreAsync();
+
+    private async Task QuitCoreAsync()
     {
         if (_window is not null)
         {
+            _window.IsEnabled = false;
             _window.AllowClose();
         }
 
-        if (_service is not null)
+        try
         {
-            await _service.DisposeAsync().ConfigureAwait(true);
+            if (_service is not null)
+            {
+                await _service.DisposeAsync().ConfigureAwait(true);
+            }
         }
-
-        _trayIcon?.Dispose();
-        _desktop?.Shutdown();
+        finally
+        {
+            _trayIcon?.Dispose();
+            _desktop?.Shutdown();
+        }
     }
 }

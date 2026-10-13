@@ -54,6 +54,8 @@ public sealed class ServerWindow : Window
 
     public static bool HasSavedSettings => File.Exists(JsonSettingsFile.GetPath(SettingsFileName));
 
+    public event EventHandler? QuitRequested;
+
     [SuppressMessage("Design", "CA1031", Justification = "The saved-settings startup boundary must keep the desktop app open and report any configuration or device error in the UI.")]
     public async Task AutoStartAsync()
     {
@@ -109,12 +111,17 @@ public sealed class ServerWindow : Window
         refreshButton.Click += (_, _) => RefreshPorts();
         var hideButton = new Button { Content = OperatingSystem.IsMacOS() ? "Hide" : "Hide to Tray" };
         hideButton.Click += (_, _) => Hide();
-        var buttons = new StackPanel
+        var quitButton = new Button { Content = "Quit" };
+        quitButton.Click += (_, _) => QuitRequested?.Invoke(this, EventArgs.Empty);
+        var buttons = new WrapPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 8,
-            Children = { _startButton, _stopButton, refreshButton, hideButton },
+            Children = { _startButton, _stopButton, refreshButton, hideButton, quitButton },
         };
+        foreach (Control button in buttons.Children)
+        {
+            button.Margin = new Thickness(0, 0, 8, 8);
+        }
 
         return new Grid
         {

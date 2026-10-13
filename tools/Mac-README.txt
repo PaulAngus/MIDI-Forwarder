@@ -17,7 +17,8 @@ Select MIDI Forwarder for input and output in the local MIDI application.
 Server: select a device with matching CoreMIDI input/output names, set the
 listen address and shared token, then click Save and Start.
 
-The menu-bar icon provides settings, stop/disconnect, and exit commands.
+The window Quit button and menu-bar Quit command close the app.
+The menu-bar icon also provides settings and stop/disconnect commands.
 Start at login applies at the next login. Enable it after moving the app
 to its permanent location.
 

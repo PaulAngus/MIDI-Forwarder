@@ -103,7 +103,7 @@ Both applications start with a configuration window on first launch. After a
 successful **Save and Start**/**Save and Connect**, they can hide to the
 notification area. Closing the window hides it; it does not stop the relay.
 Use the tray menu or the window's **Stop**/**Disconnect** button to stop it.
-The tray **Exit** command stops the MIDI and TCP resources before the process
+The window **Quit** button and tray **Quit** command stop the MIDI and TCP resources before the process
 exits.
 
 Settings are JSON files under:
@@ -263,7 +263,7 @@ on this machine; run `--check-virtual-midi` on the Mac before hardware testing.
 
 The macOS UI uses **Start at login** and stores per-user LaunchAgents under
 `~/Library/LaunchAgents`. Configure this after moving the apps to their final
-location. The menu-bar icon provides settings, stop and exit commands.
+location. The menu-bar icon provides settings, stop and quit commands.
 
 ## Repository layout
 
