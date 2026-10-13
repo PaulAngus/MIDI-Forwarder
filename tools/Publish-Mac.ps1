@@ -53,8 +53,7 @@ foreach ($role in @('Client', 'Server')) {
     $dictionary.Add([System.Xml.Linq.XElement]::new('key', 'NSHighResolutionCapable'))
     $dictionary.Add([System.Xml.Linq.XElement]::new([System.Xml.Linq.XName]::Get('true')))
     $plist.Add($dictionary)
-    $document = [System.Xml.Linq.XDocument]::new([System.Xml.Linq.XDeclaration]::new('1.0', 'UTF-8', $null),
-        [System.Xml.Linq.XDocumentType]::new('plist', '-//Apple//DTD PLIST 1.0//EN', 'http://www.apple.com/DTDs/PropertyList-1.0.dtd', $null), $plist)
+    $document = [System.Xml.Linq.XDocument]::new([System.Xml.Linq.XDeclaration]::new('1.0', 'UTF-8', $null), $plist)
     $document.Save((Join-Path $contentsFolder 'Info.plist'))
 }
 
@@ -84,3 +83,36 @@ try {
     $fileStream.Dispose()
 }
 Write-Host "Packaged Apple Silicon apps: $archive"
+
+if ($IsMacOS) {
+    $destinations = @(
+        (Join-Path $HOME 'Applications'),
+        '/Applications'
+    )
+    foreach ($role in @('Client', 'Server')) {
+        $appFolder = Join-Path $bundleRoot "MIDI Forwarder $role.app"
+        $executable = Join-Path $appFolder "Contents/MacOS/MidiForwarder.$role"
+        & /bin/chmod +x $executable
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not mark the macOS $role executable as executable."
+        }
+        & /usr/bin/codesign --force --deep --sign - $appFolder
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not ad-hoc sign the macOS $role app."
+        }
+        & /usr/bin/codesign --verify --deep --strict $appFolder
+        if ($LASTEXITCODE -ne 0) {
+            throw "The macOS $role app signature is invalid."
+        }
+
+        foreach ($destination in $destinations) {
+            New-Item -ItemType Directory -Path $destination -Force | Out-Null
+            $installedApp = Join-Path $destination "MIDI Forwarder $role.app"
+            & /usr/bin/ditto $appFolder $installedApp
+            if ($LASTEXITCODE -ne 0) {
+                throw "Could not install the macOS $role app to $destination."
+            }
+            Write-Host "Installed: $installedApp"
+        }
+    }
+}
