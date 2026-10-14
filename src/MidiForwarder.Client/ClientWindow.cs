@@ -22,6 +22,16 @@ public sealed class ClientWindow : Window
     private readonly TextBox _token = new();
 #if MACOS
     private readonly CheckBox _startWithWindows = new() { Content = "Start at login" };
+    private readonly ComboBox _midiBackend = new()
+    {
+        ItemsSource = new[] { "Apple network MIDI (recommended)", "Virtual MIDI (compatibility)" },
+        SelectedIndex = 0,
+        HorizontalAlignment = HorizontalAlignment.Stretch,
+    };
+    private readonly TextBox _networkMidiEndpoint = new() { Text = "Network RTP Session 1" };
+    private readonly TextBox _networkMidiPort = new() { Text = "5004" };
+    private TextBlock? _networkPortLabel;
+    private readonly TextBlock _midiHelp = new() { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
 #else
     private readonly CheckBox _startWithWindows = new() { Content = "Start automatically with Windows" };
 #endif
@@ -48,6 +58,11 @@ public sealed class ClientWindow : Window
         _service.StatusChanged += (_, status) => SetStatus(status);
         _interfaceName.Text = "MIDI Forwarder";
         _serverUri.Text = "tcp://127.0.0.1:5180";
+#if MACOS
+        _midiBackend.SelectionChanged += (_, _) => UpdateMidiBackend();
+        _networkMidiEndpoint.TextChanged += (_, _) => UpdateMidiBackend();
+        UpdateMidiBackend();
+#endif
     }
 
     public static bool HasSavedSettings => File.Exists(JsonSettingsFile.GetPath(SettingsFileName));
@@ -93,20 +108,42 @@ public sealed class ClientWindow : Window
 
     private Grid BuildContent()
     {
+#if MACOS
+        TextBlock help = _midiHelp;
+#else
         var help = new TextBlock
         {
             Text = "The client creates one MIDI input and one MIDI output using the interface name below (default: “MIDI Forwarder”). Select that same name for MIDI input and output in your MIDI application.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
         };
+#endif
         var form = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("190,*"),
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,Auto,Auto"),
         };
+#if MACOS
+        AddField(form, 0, "MIDI backend", _midiBackend);
+        AddField(form, 1, "MIDI interface", _interfaceName);
+        Grid.SetRow(_networkMidiEndpoint, 1);
+        Grid.SetColumn(_networkMidiEndpoint, 1);
+        _networkMidiEndpoint.Margin = new Thickness(0, 0, 0, 8);
+        form.Children.Add(_networkMidiEndpoint);
+        _networkPortLabel = AddField(form, 2, "Apple session UDP port", _networkMidiPort);
+        AddField(form, 3, "Server TCP address", _serverUri);
+        AddField(form, 4, "Shared token", _token);
+        Grid.SetRow(_startWithWindows, 5);
+        var midiSetup = new Button { Content = "Open Audio MIDI Setup", Margin = new Thickness(0, 0, 0, 8) };
+        midiSetup.Click += (_, _) => OpenMidiSetup();
+        Grid.SetRow(midiSetup, 6);
+        Grid.SetColumn(midiSetup, 1);
+        form.Children.Add(midiSetup);
+#else
         AddField(form, 0, "Virtual MIDI interface", _interfaceName);
         AddField(form, 1, "Server TCP address", _serverUri);
         AddField(form, 2, "Shared token", _token);
         Grid.SetRow(_startWithWindows, 3);
+#endif
         Grid.SetColumn(_startWithWindows, 1);
         form.Children.Add(_startWithWindows);
 
@@ -154,6 +191,12 @@ public sealed class ClientWindow : Window
             var settings = new ClientSettings
             {
                 InterfaceName = _interfaceName.Text?.Trim() ?? string.Empty,
+#if MACOS
+                UseAppleNetworkMidi = _midiBackend.SelectedIndex == 0,
+                NetworkMidiEndpoint = _networkMidiEndpoint.Text?.Trim() ?? string.Empty,
+                NetworkMidiSessionPort = int.TryParse(_networkMidiPort.Text, System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out int port) ? port : 0,
+#endif
                 ServerUri = _serverUri.Text?.Trim() ?? string.Empty,
                 Token = _token.Text ?? string.Empty,
                 StartWithWindows = _startWithWindows.IsChecked == true,
@@ -194,7 +237,43 @@ public sealed class ClientWindow : Window
         _serverUri.Text = UpgradeLegacyServerAddress(settings.ServerUri);
         _token.Text = settings.Token;
         _startWithWindows.IsChecked = settings.StartWithWindows;
+#if MACOS
+        _midiBackend.SelectedIndex = settings.UseAppleNetworkMidi ? 0 : 1;
+        _networkMidiEndpoint.Text = settings.NetworkMidiEndpoint;
+        _networkMidiPort.Text = settings.NetworkMidiSessionPort.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        UpdateMidiBackend();
+#endif
     }
+
+#if MACOS
+    private void UpdateMidiBackend()
+    {
+        bool native = _midiBackend.SelectedIndex == 0;
+        _networkMidiEndpoint.IsVisible = native;
+        _interfaceName.IsVisible = !native;
+        _networkMidiPort.IsVisible = native;
+        if (_networkPortLabel is not null) { _networkPortLabel.IsVisible = native; }
+        _midiHelp.Text = native
+            ? $"Select “{_networkMidiEndpoint.Text}” for input and output in your MIDI app. One-time setup in Audio MIDI Setup: enable an RTP session, add 127.0.0.1:55006 to its directory, and set Connection policy to Directory entries. The client connects automatically."
+            : "The compatibility backend creates a virtual input and output with the name below. Bulk transfers are paced. Select that name for input and output in your MIDI app.";
+    }
+
+    private void OpenMidiSetup()
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("/usr/bin/open")
+            {
+                ArgumentList = { "-a", "Audio MIDI Setup" },
+                UseShellExecute = false,
+            })?.Dispose();
+        }
+        catch (System.ComponentModel.Win32Exception error)
+        {
+            AppendLog($"Could not open Audio MIDI Setup: {error.Message}");
+        }
+    }
+#endif
 
     private void AppendLog(string message) => Dispatcher.UIThread.Post(() =>
     {
@@ -244,7 +323,7 @@ public sealed class ClientWindow : Window
         return value;
     }
 
-    private static void AddField(Grid grid, int row, string label, Control control)
+    private static TextBlock AddField(Grid grid, int row, string label, Control control)
     {
         var text = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center };
         Grid.SetRow(text, row);
@@ -254,6 +333,7 @@ public sealed class ClientWindow : Window
         control.Margin = new Thickness(0, 0, 0, 8);
         grid.Children.Add(text);
         grid.Children.Add(control);
+        return text;
     }
 
     private static T Place<T>(T control, int row) where T : Control

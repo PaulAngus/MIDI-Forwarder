@@ -70,10 +70,15 @@ public static class TcpMidiBridge
         CancellationToken cancellationToken)
     {
         var summary = new TrafficSummary("MIDI -> network", log);
+        bool trace = Trace.Enabled;
         await foreach (MidiPacket packet in midi.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
             await WriteFrameAsync(stream, packet, cancellationToken).ConfigureAwait(false);
             summary.Add(packet.Data.Length);
+            if (trace)
+            {
+                Trace.Write("MIDI -> network", packet);
+            }
         }
 
         summary.Flush();
@@ -86,6 +91,7 @@ public static class TcpMidiBridge
         CancellationToken cancellationToken)
     {
         var summary = new TrafficSummary("Network -> MIDI", log);
+        bool trace = Trace.Enabled;
         while (!cancellationToken.IsCancellationRequested)
         {
             MidiPacket? packet = await ReadFrameAsync(stream, cancellationToken).ConfigureAwait(false);
@@ -94,8 +100,17 @@ public static class TcpMidiBridge
                 break;
             }
 
+            if (trace)
+            {
+                Trace.Write("network received", packet.Value);
+            }
+
             await midi.SendAsync(packet.Value, cancellationToken).ConfigureAwait(false);
             summary.Add(packet.Value.Data.Length);
+            if (trace)
+            {
+                Trace.Write("sent to MIDI", packet.Value);
+            }
         }
 
         summary.Flush();
@@ -124,6 +139,21 @@ public static class TcpMidiBridge
         }
 
         return true;
+    }
+
+    // Opt-in diagnostics: create an empty "trace.enable" file in the MIDI Forwarder settings folder, then reconnect.
+    private static class Trace
+    {
+        public static bool Enabled => File.Exists(DiagnosticLog.GetPath("trace.enable"));
+
+        public static void Write(string stage, MidiPacket packet)
+        {
+            ReadOnlySpan<byte> data = packet.Data.Span;
+            int head = Math.Min(data.Length, 8);
+            DiagnosticLog.Write(
+                "trace.log",
+                $"{stage}: {data.Length} byte(s), {packet.Format}, starts {Convert.ToHexString(data[..head])}, ends {Convert.ToHexString(data[^1..])}");
+        }
     }
 
     // Per-message logging made the UI log (and the server's log file) a bottleneck during bulk SysEx transfers.

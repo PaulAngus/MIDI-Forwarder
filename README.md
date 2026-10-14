@@ -30,8 +30,8 @@ MIDI application
 
 Both directions are pumped concurrently. A connection ends when either side
 closes or either MIDI pump fails. TCP uses `TCP_NODELAY` and keep-alive for
-responsive control traffic. This is a reliable control/SysEx bridge, not a
-clock-synchronised RTP-MIDI implementation.
+responsive control traffic. The computer-to-computer connection uses TCP.
+The macOS client uses a local RTP-MIDI connection to Apple's network MIDI driver.
 
 ## Requirements
 
@@ -238,17 +238,40 @@ Build output (`bin`, `obj`, and `publish`) is ignored by Git.
 
 ## Apple Silicon builds
 
-The macOS client and server use RtMidi's CoreMIDI backend with the same TCP
-protocol as the Windows applications. They require macOS 15 (Sequoia) or later.
-The client creates a virtual input and output; the server lists devices with
-matching CoreMIDI input/output names. These builds support MIDI 1.0, including
+The macOS apps use the same TCP protocol as the Windows applications and require
+macOS 15 (Sequoia) or later. The client defaults to **Apple network MIDI**, using
+a loopback RTP-MIDI peer to supply a native driver-owned input/output. The server
+uses RtMidi's CoreMIDI backend and lists matching physical input/output names.
+These builds support MIDI 1.0, including
 MIDI clock and SysEx, and decode MIDI 1.0 UMP/SysEx7 from Windows peers.
 MIDI 2.0 channel messages and SysEx8 are not supported by the Mac backend.
+
+One-time Mac client setup:
+
+1. In Audio MIDI Setup, open MIDI Studio → Configure Network Driver and create
+   an **RTP** session. Enable it; the default name/port are `RTP Session 1` / `5004`.
+2. Add a directory entry for `127.0.0.1`, port `55006`, named `MIDI Forwarder`.
+   Set the session's **Connection policy** to **Directory entries**. Leave live
+   routings as **None**. The client initiates and reconnects the local session;
+   the persistent-peer checkbox is not needed.
+3. In the client, choose **Apple network MIDI (recommended)**, use the matching
+   endpoint (`Network RTP Session 1`) and Apple session UDP port, and save the
+   TCP server address and shared token.
+4. In PresetMaestro or another MIDI app, select `Network RTP Session 1` for both
+   MIDI input and output. The old `MIDI Forwarder` virtual ports belong to the
+   compatibility backend.
+
+The **Virtual MIDI (compatibility)** option retains the paced virtual ports.
+Apple network MIDI avoids that source's sustained-transfer restriction. See the
+[macOS diagnosis and validation](docs/macos-preset-sync.md) for the measured
+fourfold FM9 speed improvement and protocol checks.
 
 Build and package both self-contained Apple Silicon apps from PowerShell:
 
 ```powershell
 .\tools\Publish-Mac.ps1
+# Rebuild and install only the client on a Mac:
+.\tools\Publish-Mac.ps1 -ClientOnly
 dotnet restore .\MIDI-Forwarder.Mac.slnx --configfile .\NuGet.Config
 dotnet test .\MIDI-Forwarder.Mac.slnx -c Release --no-restore
 ```
@@ -258,8 +281,11 @@ The script downloads the SHA-256-pinned RtMidi native library, publishes the
 `publish/macos-arm64/MIDI-Forwarder-macos-arm64.tar.gz`. Extract it on a Mac
 and follow its `README.txt` to prepare and locally sign both `.app` bundles.
 The archive preserves executable permissions. No .NET or Homebrew installation
-is needed to run the apps. Windows cross-builds cannot be tested or notarized
-on this machine; run `--check-virtual-midi` on the Mac before hardware testing.
+is needed to run the apps. On macOS the script also signs and installs the apps
+in `/Applications` and `~/Applications`. Run `--check-network-midi` with the GUI
+client disconnected to check controls, clock, sustained bulk SysEx and large
+messages through the real Apple driver. `--check-virtual-midi` checks the
+compatibility backend.
 
 The macOS UI uses **Start at login** and stores per-user LaunchAgents under
 `~/Library/LaunchAgents`. Configure this after moving the apps to their final

@@ -1,3 +1,5 @@
+param([ValidateSet('Client', 'Server')][string[]]$Roles = @('Client', 'Server'))
+
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -54,7 +56,7 @@ function Test-Arm64Binary([string]$Path) {
     Write-Host "Apple Silicon verified: $([IO.Path]::GetFileName($Path))"
 }
 
-foreach ($role in @('Client', 'Server')) {
+foreach ($role in $Roles) {
     $contents = Join-Path $bundleRoot "MIDI Forwarder $role.app/Contents"
     $plist = [System.Xml.Linq.XDocument]::Load((Join-Path $contents 'Info.plist'))
     $elements = @($plist.Root.Element('dict').Elements())
