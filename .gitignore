@@ -9,3 +9,4 @@ local-packages/*
 !local-packages/README.md
 CopyPublishedEXEs.ps1
 artifacts/
+Directory.Build.targets
