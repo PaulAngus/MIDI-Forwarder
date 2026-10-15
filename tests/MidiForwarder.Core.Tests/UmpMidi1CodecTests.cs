@@ -1,4 +1,4 @@
-using MidiForwarder.Midi.WindowsServices;
+using MightBeUseful.Midi.Windows;
 
 namespace MidiForwarder.Core.Tests;
 

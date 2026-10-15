@@ -1,10 +1,10 @@
 using System.Net.Sockets;
 using MidiForwarder.Core;
 #if MACOS
-using WindowsMidiServicesDuplexPort = MidiForwarder.Midi.CoreMidi.CoreMidiDuplexPort;
-using MidiForwarder.Midi.CoreMidi;
+using WindowsMidiServicesDuplexPort = MightBeUseful.Midi.CoreMidi.CoreMidiDuplexPort;
+using MightBeUseful.Midi.CoreMidi;
 #else
-using MidiForwarder.Midi.WindowsServices;
+using MightBeUseful.Midi.Windows;
 #endif
 
 namespace MidiForwarder.Client;
@@ -33,7 +33,7 @@ public sealed class ClientRelayService : IAsyncDisposable
 
         if (!settings.IsComplete)
         {
-            throw new InvalidOperationException("Enter a MIDI interface name and a valid tcp:// server address.");
+            throw new InvalidOperationException("Complete the MIDI settings and enter a valid tcp:// server address.");
         }
 
         Uri serverUri = TcpEndpoint.Parse(settings.ServerUri);
@@ -50,8 +50,9 @@ public sealed class ClientRelayService : IAsyncDisposable
             WriteLog($"Created compatibility virtual MIDI input/output: {settings.InterfaceName}");
         }
 #else
-        WindowsMidiServicesDuplexPort midi = WindowsMidiServicesDuplexPort.Open(settings.InterfaceName);
-        WriteLog($"Created virtual MIDI input/output: {midi.ApplicationPortName}");
+        IMidiDuplexPort midi = WindowsMidiBackend.OpenClient(settings.InterfaceName, settings.MidiInput, settings.MidiOutput);
+        WriteLog(WindowsMidiBackend.Capabilities.Description);
+        WriteLog($"MIDI input: {midi.InputName}; output: {midi.OutputName}");
 #endif
         var cancellation = new CancellationTokenSource();
         _midi = midi;
@@ -140,7 +141,11 @@ public sealed class ClientRelayService : IAsyncDisposable
             {
                 break;
             }
-            catch (Exception error) when (error is SocketException or IOException)
+            catch (Exception error) when (error is SocketException or IOException
+#if !MACOS
+                or NotSupportedException or NAudio.MmException
+#endif
+                )
             {
                 WriteLog($"Connection ended: {error.Message}");
             }

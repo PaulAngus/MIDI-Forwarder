@@ -2,10 +2,12 @@ using System.Net;
 using System.Net.Sockets;
 using MidiForwarder.Core;
 #if MACOS
-using PhysicalMidiEndpointDuplexPort = MidiForwarder.Midi.CoreMidi.CoreMidiDuplexPort;
-using PhysicalMidiEndpointCatalog = MidiForwarder.Midi.CoreMidi.CoreMidiPortCatalog;
+using PhysicalMidiEndpointDuplexPort = MightBeUseful.Midi.CoreMidi.CoreMidiDuplexPort;
+using PhysicalMidiEndpointCatalog = MightBeUseful.Midi.CoreMidi.CoreMidiPortCatalog;
 #else
-using MidiForwarder.Midi.WindowsServices;
+using WinMmPortCatalog = MightBeUseful.Midi.Windows.LegacyMidiPortCatalog;
+using MightBeUseful.Midi.Windows;
+
 #endif
 
 namespace MidiForwarder.Server;
@@ -42,8 +44,15 @@ public sealed class ServerRelayService : IAsyncDisposable
             listener.Start(1);
             _listener = listener;
             _cancellation = cancellation;
-            _runTask = AcceptClientsAsync(listener, settings.Token, settings.MidiEndpoint, cancellation.Token);
-            SetStatus($"Listening on {settings.ListenUrl}");
+            _runTask = AcceptClientsAsync(listener, settings, cancellation.Token);
+#if !MACOS
+            WriteLog(WindowsMidiBackend.Capabilities.Description);
+            WriteLog($"Selected MIDI input: {settings.EffectiveMidiInput}; output: {settings.EffectiveMidiOutput}");
+#else
+            WriteLog($"Selected MIDI endpoint: {settings.MidiEndpoint}");
+#endif
+            WriteLog("The MIDI endpoint opens when a client connects.");
+            SetStatus($"Listening on {settings.ListenUrl}; waiting for a client");
             return Task.CompletedTask;
         }
         catch
@@ -104,8 +113,7 @@ public sealed class ServerRelayService : IAsyncDisposable
 
     private async Task AcceptClientsAsync(
         TcpListener listener,
-        string token,
-        string midiEndpoint,
+        ServerSettings settings,
         CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -117,19 +125,22 @@ public sealed class ServerRelayService : IAsyncDisposable
                 continue;
             }
 
-            _clientTask = HandleClientAsync(client, token, midiEndpoint, cancellationToken);
+            _clientTask = HandleClientAsync(client, settings, cancellationToken);
         }
     }
 
     private async Task HandleClientAsync(
         TcpClient client,
-        string token,
-        string midiEndpoint,
+        ServerSettings settings,
         CancellationToken cancellationToken)
     {
         using (client)
         {
-            PhysicalMidiEndpointDuplexPort? midi = null;
+#if MACOS
+            IMidiDuplexPort? midi = null;
+#else
+            IMidiDuplexPort? midi = null;
+#endif
             try
             {
                 client.NoDelay = true;
@@ -139,7 +150,7 @@ public sealed class ServerRelayService : IAsyncDisposable
                 authenticationTimeout.CancelAfter(TimeSpan.FromSeconds(5));
                 bool authorized = await TcpAuthentication.ReceiveAndValidateAsync(
                     stream,
-                    token,
+                    settings.Token,
                     authenticationTimeout.Token).ConfigureAwait(false);
                 if (!authorized)
                 {
@@ -148,13 +159,18 @@ public sealed class ServerRelayService : IAsyncDisposable
                 }
 
                 WriteLog($"Client connected: {client.Client.RemoteEndPoint}");
-                SetStatus("Client connected");
+                SetStatus("Client authenticated; opening MIDI endpoint");
 
-                // Windows MIDI Services shares the endpoint with other applications (e.g. the
-                // device's own editor), so it can stay connected only for as long as needed.
-                midi = PhysicalMidiEndpointDuplexPort.Open(midiEndpoint);
-                WriteLog($"Connected to MIDI endpoint: {midi.EndpointName}");
-                await TcpMidiBridge.RunAsync(stream, midi, null, cancellationToken).ConfigureAwait(false);
+                // Release hardware between connections, including exclusive WinMM drivers.
+#if MACOS
+                midi = PhysicalMidiEndpointDuplexPort.Open(settings.MidiEndpoint);
+#else
+                midi = WindowsMidiBackend.OpenPhysical(settings.MidiEndpoint, settings.EffectiveMidiInput, settings.EffectiveMidiOutput);
+#endif
+                WriteLog($"MIDI input: {midi.InputName}; output: {midi.OutputName}");
+                SetStatus("Client connected; MIDI endpoint open");
+                await TcpMidiBridge.RunAsync(stream, midi, WriteLog, cancellationToken).ConfigureAwait(false);
+                WriteLog("Client disconnected.");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -163,7 +179,11 @@ public sealed class ServerRelayService : IAsyncDisposable
             {
                 WriteLog($"Client connection ended: {error.Message}");
             }
-            catch (Exception error) when (error is IOException or SocketException or EndOfStreamException or InvalidOperationException)
+            catch (Exception error) when (error is IOException or SocketException or EndOfStreamException or InvalidOperationException or NotSupportedException
+#if !MACOS
+                or NAudio.MmException
+#endif
+                )
             {
                 WriteLog($"Client connection ended: {error.Message}");
             }
@@ -178,7 +198,7 @@ public sealed class ServerRelayService : IAsyncDisposable
                 _clientGate.Release();
                 if (IsRunning)
                 {
-                    SetStatus("Listening");
+                    SetStatus($"Listening on {settings.ListenUrl}; waiting for a client");
                 }
             }
         }
@@ -191,9 +211,17 @@ public sealed class ServerRelayService : IAsyncDisposable
             throw new InvalidOperationException("Select a physical MIDI endpoint and enter a valid TCP listen address.");
         }
 
-        if (!PhysicalMidiEndpointCatalog.GetNames().Contains(settings.MidiEndpoint, StringComparer.OrdinalIgnoreCase))
+#if MACOS
+        bool validPorts = PhysicalMidiEndpointCatalog.GetNames().Contains(settings.MidiEndpoint, StringComparer.OrdinalIgnoreCase);
+#else
+        bool validPorts = WindowsMidiBackend.Capabilities.UseMidiServices
+            ? WindowsMidiBackend.GetEndpointNames().Contains(settings.MidiEndpoint, StringComparer.OrdinalIgnoreCase)
+            : WinMmPortCatalog.GetInputNames().Contains(settings.EffectiveMidiInput, StringComparer.OrdinalIgnoreCase)
+                && WinMmPortCatalog.GetOutputNames().Contains(settings.EffectiveMidiOutput, StringComparer.OrdinalIgnoreCase);
+#endif
+        if (!validPorts)
         {
-            throw new InvalidOperationException($"MIDI endpoint not found: {settings.MidiEndpoint}");
+            throw new InvalidOperationException("The selected MIDI endpoint or input/output ports are unavailable. Refresh MIDI ports and check the selection.");
         }
 
         Uri uri = TcpEndpoint.Parse(settings.ListenUrl);
@@ -209,5 +237,9 @@ public sealed class ServerRelayService : IAsyncDisposable
 
     private void WriteLog(string message) => LogMessage?.Invoke(this, message);
 
-    private void SetStatus(string status) => StatusChanged?.Invoke(this, status);
+    private void SetStatus(string status)
+    {
+        StatusChanged?.Invoke(this, status);
+        WriteLog(status);
+    }
 }

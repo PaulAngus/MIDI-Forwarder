@@ -10,3 +10,8 @@ local-packages/*
 CopyPublishedEXEs.ps1
 artifacts/
 Directory.Build.targets
+
+# Pinned shared MIDI packages.
+!dependencies/midi/*.nupkg
+
+TestResults/

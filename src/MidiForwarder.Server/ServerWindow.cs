@@ -5,10 +5,12 @@ using Avalonia.Threading;
 using MidiForwarder.Core;
 #if MACOS
 using WindowsStartupRegistration = MidiForwarder.Midi.CoreMidi.MacStartupRegistration;
-using PhysicalMidiEndpointCatalog = MidiForwarder.Midi.CoreMidi.CoreMidiPortCatalog;
+using PhysicalMidiEndpointCatalog = MightBeUseful.Midi.CoreMidi.CoreMidiPortCatalog;
 #else
-using MidiForwarder.Midi.WinMM;
-using MidiForwarder.Midi.WindowsServices;
+using WinMmPortCatalog = MightBeUseful.Midi.Windows.LegacyMidiPortCatalog;
+using WindowsStartupRegistration = MidiForwarder.Midi.WinMM.WindowsStartupRegistration;
+
+using MightBeUseful.Midi.Windows;
 #endif
 using System.Diagnostics.CodeAnalysis;
 
@@ -20,6 +22,10 @@ public sealed class ServerWindow : Window
     private const string StartupName = "MIDI Forwarder Server";
     private readonly ServerRelayService _service;
     private readonly ComboBox _midiEndpoint = new();
+#if !MACOS
+    private readonly ComboBox _midiInput = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly ComboBox _midiOutput = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+#endif
     private readonly TextBox _listenUrl = new();
     private readonly TextBox _token = new();
 #if MACOS
@@ -27,7 +33,12 @@ public sealed class ServerWindow : Window
 #else
     private readonly CheckBox _startWithWindows = new() { Content = "Start automatically with Windows" };
 #endif
-    private readonly TextBlock _status = new() { Text = "Stopped" };
+    private readonly TextBlock _status = new()
+    {
+        Text = "Stopped",
+        Foreground = Avalonia.Media.Brushes.White,
+        TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+    };
     private readonly TextBox _log = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
     private readonly Button _startButton = new() { Content = "Save and Start" };
     private readonly Button _stopButton = new() { Content = "Stop", IsEnabled = false };
@@ -51,6 +62,9 @@ public sealed class ServerWindow : Window
         _service.StatusChanged += (_, status) => SetStatus(status);
         RefreshPorts();
         _listenUrl.Text = "tcp://0.0.0.0:5180";
+#if !MACOS
+        AppendLog(WindowsMidiBackend.Capabilities.Description);
+#endif
     }
 
     public static bool HasSavedSettings => File.Exists(JsonSettingsFile.GetPath(SettingsFileName));
@@ -99,12 +113,24 @@ public sealed class ServerWindow : Window
         var form = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("170,*"),
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,Auto"),
         };
+#if MACOS
         AddField(form, 0, "Physical MIDI endpoint", _midiEndpoint);
-        AddField(form, 1, "TCP listen address", _listenUrl);
-        AddField(form, 2, "Shared token", _token);
-        Grid.SetRow(_startWithWindows, 3);
+#else
+        if (WindowsMidiBackend.Capabilities.UseMidiServices)
+        {
+            AddField(form, 0, "Physical MIDI endpoint", _midiEndpoint);
+        }
+        else
+        {
+            AddField(form, 0, "Physical MIDI input", _midiInput);
+            AddField(form, 1, "Physical MIDI output", _midiOutput);
+        }
+#endif
+        AddField(form, 2, "TCP listen address", _listenUrl);
+        AddField(form, 3, "Shared token", _token);
+        Grid.SetRow(_startWithWindows, 4);
         Grid.SetColumn(_startWithWindows, 1);
         form.Children.Add(_startWithWindows);
 
@@ -153,6 +179,10 @@ public sealed class ServerWindow : Window
             var settings = new ServerSettings
             {
                 MidiEndpoint = GetText(_midiEndpoint),
+#if !MACOS
+                MidiInput = GetText(_midiInput),
+                MidiOutput = GetText(_midiOutput),
+#endif
                 ListenUrl = _listenUrl.Text?.Trim() ?? string.Empty,
                 Token = _token.Text ?? string.Empty,
                 StartWithWindows = _startWithWindows.IsChecked == true,
@@ -189,7 +219,19 @@ public sealed class ServerWindow : Window
 
     private void ApplySettings(ServerSettings settings)
     {
+#if MACOS
         SetItems(_midiEndpoint, PhysicalMidiEndpointCatalog.GetNames(), settings.MidiEndpoint);
+#else
+        if (WindowsMidiBackend.Capabilities.UseMidiServices)
+        {
+            SetItems(_midiEndpoint, WindowsMidiBackend.GetEndpointNames(), settings.MidiEndpoint);
+        }
+        else
+        {
+            SetItems(_midiInput, WinMmPortCatalog.GetInputNames(), settings.EffectiveMidiInput);
+            SetItems(_midiOutput, WinMmPortCatalog.GetOutputNames(), settings.EffectiveMidiOutput);
+        }
+#endif
         _listenUrl.Text = UpgradeLegacyListenAddress(settings.ListenUrl);
         _token.Text = settings.Token;
         _startWithWindows.IsChecked = settings.StartWithWindows;
@@ -197,8 +239,20 @@ public sealed class ServerWindow : Window
 
     private void RefreshPorts()
     {
+#if MACOS
         string endpoint = GetText(_midiEndpoint);
         SetItems(_midiEndpoint, PhysicalMidiEndpointCatalog.GetNames(), endpoint);
+#else
+        if (WindowsMidiBackend.Capabilities.UseMidiServices)
+        {
+            SetItems(_midiEndpoint, WindowsMidiBackend.GetEndpointNames(), GetText(_midiEndpoint));
+        }
+        else
+        {
+            SetItems(_midiInput, WinMmPortCatalog.GetInputNames(), GetText(_midiInput));
+            SetItems(_midiOutput, WinMmPortCatalog.GetOutputNames(), GetText(_midiOutput));
+        }
+#endif
     }
 
     private void AppendLog(string message) => Dispatcher.UIThread.Post(() =>

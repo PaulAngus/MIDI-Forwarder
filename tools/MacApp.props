@@ -26,7 +26,6 @@
       <MacNativeLibrary Include="$(NuGetPackageRoot)avalonia.native/11.2.3/runtimes/osx/native/libAvaloniaNative.dylib" />
       <MacNativeLibrary Include="$(NuGetPackageRoot)harfbuzzsharp.nativeassets.macos/7.3.0.3/runtimes/osx/native/libHarfBuzzSharp.dylib" />
       <MacNativeLibrary Include="$(NuGetPackageRoot)skiasharp.nativeassets.macos/2.88.9/runtimes/osx/native/libSkiaSharp.dylib" />
-      <MacNativeLibrary Include="$(MSBuildThisFileDirectory)../local-packages/rtmidi/6.0.0/osx-arm64/librtmidi.7.dylib" />
     </ItemGroup>
     <!-- Keep sidecars present even when an incremental single-file publish skips copying runtime assets. -->
     <Copy SourceFiles="@(MacNativeLibrary)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />

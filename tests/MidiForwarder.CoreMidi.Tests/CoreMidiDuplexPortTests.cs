@@ -1,5 +1,5 @@
 using MidiForwarder.Core;
-using MidiForwarder.Midi.CoreMidi;
+using MightBeUseful.Midi.CoreMidi;
 
 namespace MidiForwarder.CoreMidi.Tests;
 

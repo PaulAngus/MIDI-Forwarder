@@ -1,5 +1,7 @@
 # MIDI Forwarder
 
+Shared MIDI implementation: see [dependency and setup notes](dependencies/midi/README.md). Current and legacy backends come from the `MightBeUseful.Midi` packages maintained in [MIDIHelperLibrary](https://github.com/PaulAngus/MIDIHelperLibrary); earlier implementation/package details below describe the pre-migration builds.
+
 Both Client and Server use the **DIN Send** socket-and-arrow logo in their app headers, window/tray icons and published Windows/macOS application icons. Branding exports and verification notes are in [Branding](Branding/README.md).
 
 MIDI Forwarder makes a physical MIDI interface connected to one Windows PC
@@ -15,10 +17,11 @@ and SysEx, without interpreting manufacturer-specific bytes.
 
 Run the two small Windows desktop applications as a pair:
 
-- **Server** runs beside the physical MIDI hardware. It opens one WinMM MIDI
-  input and one WinMM MIDI output and listens for a client connection.
-- **Client** runs beside the MIDI application. It creates a transient Windows
-  MIDI Services loopback pair and connects that pair to the server over TCP.
+- **Server** runs beside the physical MIDI hardware. It opens a Windows MIDI
+  Services endpoint or a WinMM MIDI input/output pair and listens for a client connection.
+- **Client** runs beside the MIDI application. It uses a transient Windows
+  MIDI Services loopback pair, or two existing WinMM virtual cables, and connects
+  them to the server over TCP.
 
 ```text
 MIDI application
@@ -39,19 +42,32 @@ The macOS client uses a local RTP-MIDI connection to Apple's network MIDI driver
 
 For published binaries:
 
-- Windows x64.
-- A Windows MIDI Services installation that provides the loopback transport
-  for the **client**. The client uses the current Windows MIDI Services App SDK
-  preview projection bundled with this repository.
-- A WinMM-visible physical MIDI input and output for the **server**.
+- Windows 10 version 1809 (build 17763) or later, or Windows 11; x64.
+- On Windows 10, the **client** needs two virtual MIDI cables provided by an
+  installed driver, such as [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html).
+  The **server** uses ordinary WinMM-visible hardware inputs and outputs.
+- On Windows 11 25H2 (build 26200) or later, the apps prefer Windows MIDI
+  Services when its API is available. The client creates its own virtual ports
+  when the loopback transport is available. Earlier Windows 11 releases, missing
+  services, and SDK initialization failures use WinMM. A missing loopback
+  transport selects existing WinMM cables for the client while the server can
+  still use MIDI Services for hardware.
+
+The selected API is shown in the application log and by `--midi-backend`.
+The Windows MIDI Services API requires Windows 11 25H2 or later according to
+[Microsoft's requirements](https://microsoft.github.io/MIDI/kb/minimum-requirements/).
+WinMM does not create virtual cables itself; the client does not install a driver.
 
 For development:
 
 - .NET 10 SDK.
 - The Windows SDK reference and Windows MIDI Services packages pinned in
   `local-packages`.
-- A Windows x64 build environment. The client targets
-  `net10.0-windows10.0.26100.0`; the server targets `net10.0-windows`.
+- A Windows x64 build environment. Both apps compile against
+  `net10.0-windows10.0.26100.0`, with `SupportedOSPlatformVersion` explicitly
+  set to `10.0.17763.0`. The SDK version controls the available build-time API;
+  the supported-platform version sets the Windows 10 runtime baseline.
+  Newer MIDI Services calls are guarded and isolated from the Windows 10 path.
 
 The published applications are self-contained single-file executables, so a
 separate .NET runtime is not required on the machine that runs them.
@@ -64,9 +80,9 @@ shared token byte-for-byte.
 ### Server (computer connected to the MIDI hardware)
 
 1. Start `MidiForwarder.Server.exe`.
-2. Choose the physical **MIDI input** that receives data from the device and
-   the physical **MIDI output** that sends data to it. Use **Refresh MIDI
-   Ports** if the device was connected after the window opened.
+2. Choose the physical **MIDI endpoint** when using Windows MIDI Services,
+   or the **MIDI input** that receives from the device and the **MIDI output**
+   that sends to it when using WinMM. Refresh the ports after connecting a device.
 3. Leave **TCP listen address** as `tcp://0.0.0.0:5180` for trusted-LAN use, or
    bind to a specific local address. The scheme must be `tcp://` and the port
    must be between 1 and 65535.
@@ -80,6 +96,20 @@ The server accepts one active client at a time. Additional connections are
 closed while another client is relaying.
 
 ### Client (computer running the MIDI application)
+
+On Windows 10, or when the log reports WinMM:
+
+1. In loopMIDI (or another virtual cable driver), create two cables named
+   `MIDI Fwd From App` and `MIDI Fwd To App`. Keep the cable software running;
+   enable its startup option if MIDI Forwarder starts automatically.
+2. In MIDI Forwarder, select `MIDI Fwd From App` as **From MIDI app (input)**
+   and `MIDI Fwd To App` as **To MIDI app (output)**. Click **Refresh MIDI Ports**
+   if needed. The two selections must be different to avoid feedback.
+3. Enter the server TCP address and matching shared token, then click **Save and Connect**.
+4. In your MIDI application, select `MIDI Fwd From App` as its **output** and
+   `MIDI Fwd To App` as its **input**. These are reversed relative to the forwarder.
+
+On Windows 11 with Windows MIDI Services and loopback available:
 
 1. Start `MidiForwarder.Client.exe`.
 2. Enter a name for the virtual interface, such as `MIDI Forwarder`.
@@ -127,7 +157,7 @@ the current `tcp://` form. No WebSocket listener is present in this build.
 ## Virtual MIDI details
 
 The client creates a transient Windows MIDI Services loopback association with
-two endpoints:
+two endpoints when that backend is selected:
 
 ```text
 <name> (Relay)  - UMP-only internal side opened by MIDI Forwarder
@@ -143,6 +173,14 @@ killed or the Windows MIDI service crashes, Windows may retain the transient
 endpoint until the service or computer restarts. The client reports a startup
 error when Windows MIDI Services or its loopback transport is unavailable.
 
+The WinMM backend instead opens the two selected pre-existing virtual cables.
+It closes its handles on stop and leaves ownership of those cables with their
+driver/software. Some WinMM drivers allow only one application per port; close
+other software using the server's hardware ports if opening them fails.
+MIDI 1.0 UMP messages from a Windows 11 peer are converted to MIDI 1.0 bytes,
+including multipart SysEx7, before sending to WinMM. MIDI 2.0 channel messages
+and SysEx8 cannot be sent through WinMM and produce an explicit error.
+
 Because the adapter uses the Windows MIDI Services preview API, this build is
 intended for development and testing. Review Microsoft's distribution terms
 before shipping it as a production product, and revisit the dependency when a
@@ -156,10 +194,13 @@ Run these commands from a terminal in the published application's directory:
 .\MidiForwarder.Server.exe --list-ports
 .\MidiForwarder.Client.exe --list-ports
 .\MidiForwarder.Client.exe --check-virtual-midi
+.\MidiForwarder.Client.exe --midi-backend
+.\MidiForwarder.Server.exe --midi-backend
 ```
 
 `--list-ports` prints the WinMM input and output names with their indexes and
-then exits. `--check-virtual-midi` creates a uniquely named short-lived test
+also lists MIDI Services endpoints when selected, then exits.
+With MIDI Services selected, `--check-virtual-midi` creates a uniquely named short-lived test
 endpoint, checks that WinMM and WinRT MIDI 1.0 each expose only one public input
 and output without suffixes, and tests Program Change and multipart SysEx in
 both directions. It removes the test endpoints on normal completion and exits with:
@@ -168,6 +209,18 @@ both directions. It removes the test endpoints on normal completion and exits wi
 - `1` when Windows MIDI Services, endpoint creation, or message checks fail;
 - `2` when the public port names or counts are incorrect;
 - `3` when the MIDI service does not complete the check within 30 seconds.
+
+For the WinMM backend, create the two cables first, close other MIDI apps, and run:
+
+```powershell
+.\MidiForwarder.Client.exe --check-virtual-midi --midi-input "MIDI Fwd From App" --midi-output "MIDI Fwd To App"
+```
+
+This opens both ends of the two cables and verifies Program Change and SysEx in
+both directions. It exits with `0` on success, `1` on configuration/message failure,
+or `3` on timeout. The check leaves the existing cables in place.
+To force the compatibility backend on Windows 11 for driver troubleshooting,
+set `$env:MIDI_FORWARDER_MIDI_API = 'winmm'` before starting either app.
 
 ## Diagnostics and logs
 
@@ -191,14 +244,14 @@ The transport is deliberately small and stream-safe:
    token length, and the token bytes.
 2. The server validates the token using a fixed-time comparison and a five
    second authentication deadline.
-3. Each MIDI message is sent as a four-byte big-endian signed length followed
-   by the message bytes.
+3. Each MIDI packet is sent as a four-byte big-endian signed length followed
+   by a one-byte format (`1` for MIDI 1.0 bytes, `2` for UMP) and the packet bytes.
 
 Frames must be non-empty and are limited to 1 MiB (`1,048,576` bytes). The
 length prefix allows arbitrary packet boundaries on TCP while preserving
-message boundaries and byte order. SysEx is passed as one complete MIDI 1.0
-message on the wire; the client converts it to and from SysEx7 UMP packets for
-the Windows MIDI Services loopback endpoint.
+message boundaries and byte order. MIDI Services peers can send UMP directly;
+WinMM peers send complete MIDI 1.0 messages. The receiving backend converts the
+format as needed, reassembling multipart SysEx7 before sending to WinMM.
 
 The stream is not encrypted. The token authenticates the peer but does not
 provide confidentiality or protection against an attacker who can observe the
@@ -326,10 +379,10 @@ WinMM MIDI application, then click **Refresh MIDI Ports** or run
 `--list-ports`. The server matches the saved port name exactly (ignoring case);
 duplicate device names are therefore ambiguous.
 
-**The client says Windows MIDI Services or loopback is unavailable.** Install
-or enable the Windows MIDI Services build that supplies the loopback transport
-and run `--check-virtual-midi`. The client cannot fall back to loopMIDI or
-manually created ports.
+**The client shows WinMM instead of creating a virtual interface.** The OS or
+installed MIDI Services does not provide the required API/loopback transport.
+Create two virtual cables and select them as described above. Run `--midi-backend`
+to see why WinMM was selected, or the WinMM virtual-cable check to test the wiring.
 
 **The client keeps reconnecting.** Check the server address, firewall rule,
 listener status, and token. The server log reports invalid-token/protocol

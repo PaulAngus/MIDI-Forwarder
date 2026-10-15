@@ -1,7 +1,6 @@
 using Avalonia;
 using MidiForwarder.Core;
-using MidiForwarder.Midi.WinMM;
-using MidiForwarder.Midi.WindowsServices;
+using MightBeUseful.Midi.Windows;
 using Windows.Devices.Enumeration;
 using Windows.Devices.Midi;
 
@@ -14,7 +13,13 @@ internal static class Program
     {
         if (args.Contains("--list-ports", StringComparer.OrdinalIgnoreCase))
         {
-            WinMmPortCatalog.Print(Console.Out);
+            WindowsMidiBackend.Print(Console.Out);
+            return 0;
+        }
+
+        if (args.Contains("--midi-backend", StringComparer.OrdinalIgnoreCase))
+        {
+            Console.WriteLine(WindowsMidiBackend.Capabilities.Description);
             return 0;
         }
 
@@ -23,11 +28,13 @@ internal static class Program
             // The command-line check has no UI message pump for STA COM callbacks.
             try
             {
-                return Task.Run(CheckVirtualMidiAsync).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+                return Task.Run(() => WindowsMidiBackend.Capabilities.CanCreateVirtualPorts
+                    ? CheckVirtualMidiAsync() : CheckLegacyMidiAsync(args))
+                    .WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
             }
             catch (TimeoutException)
             {
-                Console.Error.WriteLine("Windows MIDI Services did not complete the virtual MIDI check within 30 seconds.");
+                Console.Error.WriteLine("The virtual MIDI check did not complete within 30 seconds.");
                 return 3;
             }
         }
@@ -43,6 +50,10 @@ internal static class Program
 
     private static async Task<int> CheckVirtualMidiAsync()
     {
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 26200))
+        {
+            throw new PlatformNotSupportedException("Windows MIDI Services requires Windows 11 25H2 or later.");
+        }
         try
         {
             Console.WriteLine("Creating virtual MIDI device...");
@@ -91,6 +102,43 @@ internal static class Program
             Console.Error.WriteLine(error);
             return 1;
         }
+    }
+
+    private static async Task<int> CheckLegacyMidiAsync(string[] args)
+    {
+        try
+        {
+            string input = GetOption(args, "--midi-input");
+            string output = GetOption(args, "--midi-output");
+            WindowsMidiBackend.ValidateClientPorts(input, output);
+            Console.WriteLine(WindowsMidiBackend.Capabilities.Description);
+            await using IMidiDuplexPort relay = WindowsMidiBackend.OpenClient(string.Empty, input, output);
+            // The application's ends of the two loopback cables are reversed.
+            await using var app = WinMmDuplexPort.Open(output, input);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await using var relayMessages = relay.ReadAllAsync(timeout.Token).GetAsyncEnumerator();
+            await using var appMessages = app.ReadAllAsync(timeout.Token).GetAsyncEnumerator();
+            byte[][] messages = [[0xc0, 0x05], [0xf0, 0x7d, 1, 2, 3, 4, 5, 6, 7, 0xf7]];
+            foreach (byte[] message in messages)
+            {
+                await CheckMessageAsync(app, relayMessages, message, timeout.Token).ConfigureAwait(false);
+                await CheckMessageAsync(relay, appMessages, message, timeout.Token).ConfigureAwait(false);
+            }
+            Console.WriteLine("WinMM virtual cables preserve Program Change and SysEx in both directions.");
+            return 0;
+        }
+        catch (Exception error)
+        {
+            Console.Error.WriteLine(error.Message);
+            Console.Error.WriteLine("Usage: --check-virtual-midi --midi-input \"From App\" --midi-output \"To App\". Create both virtual cables first and close other MIDI apps during the check.");
+            return 1;
+        }
+    }
+
+    private static string GetOption(string[] args, string option)
+    {
+        int index = Array.FindIndex(args, arg => arg.Equals(option, StringComparison.OrdinalIgnoreCase));
+        return index >= 0 && index + 1 < args.Length ? args[index + 1] : string.Empty;
     }
 
     private static bool HasOnlyPublicPort(IEnumerable<string> names, string expectedName) =>

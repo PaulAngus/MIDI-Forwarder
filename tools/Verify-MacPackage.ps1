@@ -81,10 +81,13 @@ foreach ($role in $Roles) {
     }
 }
 
-$libraryBytes = [System.IO.File]::ReadAllBytes((Join-Path $repoRoot 'local-packages/rtmidi/6.0.0/osx-arm64/librtmidi.7.dylib'))
-$symbols = [Text.Encoding]::ASCII.GetString($libraryBytes)
-foreach ($symbol in @('rtmidi_in_create', 'rtmidi_out_create', 'rtmidi_get_port_name', 'rtmidi_open_virtual_port',
-    'rtmidi_in_set_callback', 'rtmidi_in_ignore_types', 'rtmidi_out_send_message', 'rtmidi_in_free', 'rtmidi_out_free')) {
-    if (-not $symbols.Contains($symbol)) { throw "Missing RtMidi native symbol: $symbol" }
+foreach ($role in $Roles) {
+    $libraryPath = Join-Path $bundleRoot "MIDI Forwarder $role.app/Contents/MacOS/librtmidi.7.dylib"
+    $libraryBytes = [System.IO.File]::ReadAllBytes($libraryPath)
+    $symbols = [Text.Encoding]::ASCII.GetString($libraryBytes)
+    foreach ($symbol in @('rtmidi_in_create', 'rtmidi_out_create', 'rtmidi_get_port_name', 'rtmidi_open_virtual_port',
+        'rtmidi_in_set_callback', 'rtmidi_in_ignore_types', 'rtmidi_out_send_message', 'rtmidi_in_free', 'rtmidi_out_free')) {
+        if (-not $symbols.Contains($symbol)) { throw "Missing RtMidi native symbol in $role bundle: $symbol" }
+    }
 }
 Write-Host 'Native dependencies, bundle metadata and RtMidi symbols verified.'

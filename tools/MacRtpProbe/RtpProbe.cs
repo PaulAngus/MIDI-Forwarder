@@ -5,7 +5,7 @@ using System.Threading.Channels;
 using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.Multimedia;
 using MidiForwarder.Core;
-using MidiForwarder.Midi.CoreMidi;
+using MightBeUseful.Midi.CoreMidi;
 
 static class RtpProbe
 {

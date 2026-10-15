@@ -1,6 +1,6 @@
 using Avalonia;
 using MidiForwarder.Core;
-using MidiForwarder.Midi.WindowsServices;
+using MightBeUseful.Midi.Windows;
 
 namespace MidiForwarder.Server;
 
@@ -12,9 +12,14 @@ internal static class Program
         try
         {
             DiagnosticLog.Write("server.log", $"Process starting. Version={typeof(Program).Assembly.GetName().Version}; PID={Environment.ProcessId}");
+            if (args.Contains("--midi-backend", StringComparer.OrdinalIgnoreCase))
+            {
+                Console.WriteLine(WindowsMidiBackend.Capabilities.Description);
+                return 0;
+            }
             if (args.Contains("--list-ports", StringComparer.OrdinalIgnoreCase))
             {
-                PhysicalMidiEndpointCatalog.Print(Console.Out);
+                WindowsMidiBackend.Print(Console.Out);
                 return 0;
             }
 

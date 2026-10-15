@@ -1,8 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../MidiForwarder.Core/MidiForwarder.Core.csproj" />
-    <Compile Include="../MidiForwarder.Midi.WindowsServices/UmpMidi1Codec.cs" Link="UmpMidi1Codec.cs" />
-    <None Include="../../local-packages/rtmidi/6.0.0/osx-arm64/librtmidi.7.dylib"
-          Link="librtmidi.7.dylib" ExcludeFromSingleFile="true" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" />
+    <PackageReference Include="MightBeUseful.Midi.CoreMidi" Version="$(SharedMidiVersion)" Condition="'$(SharedMidiSourceRoot)' == ''" />
+    <ProjectReference Include="$(SharedMidiSourceRoot)/src/MightBeUseful.Midi.CoreMidi/MightBeUseful.Midi.CoreMidi.csproj" Condition="'$(SharedMidiSourceRoot)' != ''" />
   </ItemGroup>
 </Project>

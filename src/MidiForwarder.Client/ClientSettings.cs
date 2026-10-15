@@ -4,6 +4,10 @@ public sealed record ClientSettings
 {
     public string InterfaceName { get; init; } = "MIDI Forwarder";
 
+    public string MidiInput { get; init; } = string.Empty;
+
+    public string MidiOutput { get; init; } = string.Empty;
+
 #if MACOS
     public bool UseAppleNetworkMidi { get; init; } = true;
 #else
@@ -24,7 +28,10 @@ public sealed record ClientSettings
 #if MACOS
         (UseAppleNetworkMidi ? !string.IsNullOrWhiteSpace(NetworkMidiEndpoint) : !string.IsNullOrWhiteSpace(InterfaceName))
 #else
-        !string.IsNullOrWhiteSpace(InterfaceName)
+        (MightBeUseful.Midi.Windows.WindowsMidiBackend.Capabilities.CanCreateVirtualPorts
+            ? !string.IsNullOrWhiteSpace(InterfaceName)
+            : !string.IsNullOrWhiteSpace(MidiInput) && !string.IsNullOrWhiteSpace(MidiOutput)
+                && !MidiInput.Equals(MidiOutput, StringComparison.OrdinalIgnoreCase))
 #endif
         && Uri.TryCreate(ServerUri, UriKind.Absolute, out Uri? uri)
         && uri.Scheme.Equals("tcp", StringComparison.OrdinalIgnoreCase)

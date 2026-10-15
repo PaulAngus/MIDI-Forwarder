@@ -6,7 +6,10 @@ using MidiForwarder.Core;
 #if MACOS
 using WindowsStartupRegistration = MidiForwarder.Midi.CoreMidi.MacStartupRegistration;
 #else
-using MidiForwarder.Midi.WinMM;
+using WinMmPortCatalog = MightBeUseful.Midi.Windows.LegacyMidiPortCatalog;
+using WindowsStartupRegistration = MidiForwarder.Midi.WinMM.WindowsStartupRegistration;
+
+using MightBeUseful.Midi.Windows;
 #endif
 using System.Diagnostics.CodeAnalysis;
 
@@ -34,8 +37,15 @@ public sealed class ClientWindow : Window
     private readonly TextBlock _midiHelp = new() { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
 #else
     private readonly CheckBox _startWithWindows = new() { Content = "Start automatically with Windows" };
+    private readonly ComboBox _midiInput = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly ComboBox _midiOutput = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
 #endif
-    private readonly TextBlock _status = new() { Text = "Stopped" };
+    private readonly TextBlock _status = new()
+    {
+        Text = "Stopped",
+        Foreground = Avalonia.Media.Brushes.White,
+        TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+    };
     private readonly TextBox _log = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
     private readonly Button _startButton = new() { Content = "Save and Connect" };
     private readonly Button _stopButton = new() { Content = "Disconnect", IsEnabled = false };
@@ -59,6 +69,11 @@ public sealed class ClientWindow : Window
         _service.StatusChanged += (_, status) => SetStatus(status);
         _interfaceName.Text = "MIDI Forwarder";
         _serverUri.Text = "tcp://127.0.0.1:5180";
+#if !MACOS
+        Height = 740;
+        RefreshPorts();
+        AppendLog(WindowsMidiBackend.Capabilities.Description);
+#endif
 #if MACOS
         _midiBackend.SelectionChanged += (_, _) => UpdateMidiBackend();
         _networkMidiEndpoint.TextChanged += (_, _) => UpdateMidiBackend();
@@ -114,7 +129,9 @@ public sealed class ClientWindow : Window
 #else
         var help = new TextBlock
         {
-            Text = "The client creates one MIDI input and one MIDI output using the interface name below (default: “MIDI Forwarder”). Select that same name for MIDI input and output in your MIDI application.",
+            Text = WindowsMidiBackend.Capabilities.CanCreateVirtualPorts
+                ? "Windows MIDI Services creates a virtual input and output with the interface name below. Select that name for input and output in your MIDI app."
+                : "Create two virtual cables in loopMIDI (or another virtual MIDI driver). Choose the cable your MIDI app sends to as ‘From MIDI app’, and the cable your MIDI app receives from as ‘To MIDI app’. Keep the virtual cable software running. Use different cables to avoid feedback.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
         };
 #endif
@@ -140,10 +157,18 @@ public sealed class ClientWindow : Window
         Grid.SetColumn(midiSetup, 1);
         form.Children.Add(midiSetup);
 #else
-        AddField(form, 0, "Virtual MIDI interface", _interfaceName);
-        AddField(form, 1, "Server TCP address", _serverUri);
-        AddField(form, 2, "Shared token", _token);
-        Grid.SetRow(_startWithWindows, 3);
+        if (WindowsMidiBackend.Capabilities.CanCreateVirtualPorts)
+        {
+            AddField(form, 0, "Virtual MIDI interface", _interfaceName);
+        }
+        else
+        {
+            AddField(form, 0, "From MIDI app (input)", _midiInput);
+            AddField(form, 1, "To MIDI app (output)", _midiOutput);
+        }
+        AddField(form, 2, "Server TCP address", _serverUri);
+        AddField(form, 3, "Shared token", _token);
+        Grid.SetRow(_startWithWindows, 4);
 #endif
         Grid.SetColumn(_startWithWindows, 1);
         form.Children.Add(_startWithWindows);
@@ -157,6 +182,14 @@ public sealed class ClientWindow : Window
             Orientation = Orientation.Horizontal,
             Children = { _startButton, _stopButton, hideButton, quitButton },
         };
+#if !MACOS
+        if (!WindowsMidiBackend.Capabilities.CanCreateVirtualPorts)
+        {
+            var refresh = new Button { Content = "Refresh MIDI Ports" };
+            refresh.Click += (_, _) => RefreshPorts();
+            buttons.Children.Insert(2, refresh);
+        }
+#endif
         foreach (Control button in buttons.Children)
         {
             button.Margin = new Thickness(0, 0, 8, 8);
@@ -192,6 +225,10 @@ public sealed class ClientWindow : Window
             var settings = new ClientSettings
             {
                 InterfaceName = _interfaceName.Text?.Trim() ?? string.Empty,
+#if !MACOS
+                MidiInput = _midiInput.SelectedItem as string ?? string.Empty,
+                MidiOutput = _midiOutput.SelectedItem as string ?? string.Empty,
+#endif
 #if MACOS
                 UseAppleNetworkMidi = _midiBackend.SelectedIndex == 0,
                 NetworkMidiEndpoint = _networkMidiEndpoint.Text?.Trim() ?? string.Empty,
@@ -202,6 +239,12 @@ public sealed class ClientWindow : Window
                 Token = _token.Text ?? string.Empty,
                 StartWithWindows = _startWithWindows.IsChecked == true,
             };
+#if !MACOS
+            if (!WindowsMidiBackend.Capabilities.CanCreateVirtualPorts)
+            {
+                WindowsMidiBackend.ValidateClientPorts(settings.MidiInput, settings.MidiOutput);
+            }
+#endif
             JsonSettingsFile.Save(SettingsFileName, settings);
             WindowsStartupRegistration.SetEnabled(StartupName, settings.StartWithWindows);
             await StartAsync(settings).ConfigureAwait(true);
@@ -238,6 +281,10 @@ public sealed class ClientWindow : Window
         _serverUri.Text = UpgradeLegacyServerAddress(settings.ServerUri);
         _token.Text = settings.Token;
         _startWithWindows.IsChecked = settings.StartWithWindows;
+#if !MACOS
+        SetPorts(_midiInput, WinMmPortCatalog.GetInputNames(), settings.MidiInput);
+        SetPorts(_midiOutput, WinMmPortCatalog.GetOutputNames(), settings.MidiOutput);
+#endif
 #if MACOS
         _midiBackend.SelectedIndex = settings.UseAppleNetworkMidi ? 0 : 1;
         _networkMidiEndpoint.Text = settings.NetworkMidiEndpoint;
@@ -245,6 +292,26 @@ public sealed class ClientWindow : Window
         UpdateMidiBackend();
 #endif
     }
+
+#if !MACOS
+    private void RefreshPorts()
+    {
+        SetPorts(_midiInput, WinMmPortCatalog.GetInputNames(), _midiInput.SelectedItem as string ?? string.Empty);
+        SetPorts(_midiOutput, WinMmPortCatalog.GetOutputNames(), _midiOutput.SelectedItem as string ?? string.Empty);
+    }
+
+    private static void SetPorts(ComboBox box, IReadOnlyList<string> ports, string selected)
+    {
+        // Never silently substitute a different cable for a saved, disconnected port.
+        List<string> items = ports.ToList();
+        if (!string.IsNullOrWhiteSpace(selected) && !items.Contains(selected, StringComparer.OrdinalIgnoreCase))
+        {
+            items.Insert(0, selected);
+        }
+        box.ItemsSource = items;
+        box.SelectedItem = items.FirstOrDefault(item => item.Equals(selected, StringComparison.OrdinalIgnoreCase));
+    }
+#endif
 
 #if MACOS
     private void UpdateMidiBackend()

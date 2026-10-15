@@ -1,2 +1,6 @@
-<Project Sdk="Microsoft.NET.Sdk" />
-
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="MightBeUseful.Midi" Version="$(SharedMidiVersion)" Condition="'$(SharedMidiSourceRoot)' == ''" />
+    <ProjectReference Include="$(SharedMidiSourceRoot)/src/MightBeUseful.Midi/MightBeUseful.Midi.csproj" Condition="'$(SharedMidiSourceRoot)' != ''" />
+  </ItemGroup>
+</Project>

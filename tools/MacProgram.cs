@@ -1,6 +1,6 @@
 using Avalonia;
 using MidiForwarder.Core;
-using MidiForwarder.Midi.CoreMidi;
+using MightBeUseful.Midi.CoreMidi;
 #if CLIENT
 using MidiForwarder.Client;
 #else

@@ -7,7 +7,8 @@ $outputRoot = Join-Path $repoRoot 'publish/macos-arm64'
 $bundleRoot = Join-Path $outputRoot 'MIDI Forwarder Apple Silicon'
 $roles = if ($ClientOnly) { @('Client') } else { @('Client', 'Server') }
 
-& (Join-Path $PSScriptRoot 'Get-MacMidiDependency.ps1')
+$sharedMidiVersion = (Get-Content -LiteralPath (Join-Path $repoRoot 'dependencies/midi/version.txt') -Raw).Trim()
+$sharedMidiPackage = Join-Path $repoRoot "dependencies/midi/MightBeUseful.Midi.CoreMidi.$sharedMidiVersion.nupkg"
 if (-not $SkipBuild) {
     foreach ($role in $roles) {
         $project = Join-Path $repoRoot "src/MidiForwarder.$role.Mac/MidiForwarder.$role.Mac.csproj"
@@ -34,7 +35,13 @@ foreach ($role in $roles) {
     }
     Copy-Item -LiteralPath (Join-Path $repoRoot 'assets/midi-forwarder.icns') -Destination $resourceFolder -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'THIRD-PARTY-NOTICES.md') -Destination $resourceFolder -Force
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'local-packages/rtmidi/6.0.0/osx-arm64/LICENSE') -Destination (Join-Path $resourceFolder 'RtMidi-LICENSE') -Force
+    $sharedMidiArchive = [System.IO.Compression.ZipFile]::OpenRead($sharedMidiPackage)
+    try {
+        $sharedMidiLicense = $sharedMidiArchive.GetEntry('licenses/RtMidi-LICENSE/LICENSE')
+        if ($null -eq $sharedMidiLicense) { throw 'The shared MIDI package is missing its RtMidi license.' }
+        [System.IO.Compression.ZipFileExtensions]::ExtractToFile($sharedMidiLicense, (Join-Path $resourceFolder 'RtMidi-LICENSE'), $true)
+    } finally { $sharedMidiArchive.Dispose() }
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'dependencies/midi/DryWetMidi.LICENSE.txt') -Destination $resourceFolder -Force
 
     $plist = [System.Xml.Linq.XElement]::new('plist', [System.Xml.Linq.XAttribute]::new('version', '1.0'))
     $dictionary = [System.Xml.Linq.XElement]::new([System.Xml.Linq.XName]::Get('dict'))

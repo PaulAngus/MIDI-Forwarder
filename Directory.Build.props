@@ -7,4 +7,6 @@
     <AnalysisMode>Recommended</AnalysisMode>
     <RestoreAdditionalProjectSources>$(MSBuildThisFileDirectory)local-packages</RestoreAdditionalProjectSources>
   </PropertyGroup>
+  <ItemGroup><Using Include="MightBeUseful.Midi" /></ItemGroup>
+  <Import Project="dependencies/midi/MidiVersion.props" />
 </Project>
