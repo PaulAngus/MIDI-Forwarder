@@ -1,5 +1,7 @@
 # MIDI Forwarder
 
+Both Client and Server use the **DIN Send** socket-and-arrow logo in their app headers, window/tray icons and published Windows/macOS application icons. Branding exports and verification notes are in [Branding](Branding/README.md).
+
 MIDI Forwarder makes a physical MIDI interface connected to one Windows PC
 available to an ordinary MIDI application on another Windows PC. The local
 application sees a normal named MIDI input and output; it does not need to
@@ -227,6 +229,14 @@ The configured output locations are:
 publish\server\MidiForwarder.Server.exe
 publish\client\MidiForwarder.Client.exe
 ```
+
+On Windows, each publish automatically runs the optional local
+`CopyPublishedEXEs.ps1` script when it exists. It copies the newly published
+EXE directly into each destination folder configured in that script, without
+creating client or server subdirectories. The script is ignored by Git so
+machine-specific destinations stay local. All configured destination folders
+must exist; a failed copy fails the publish command. Run
+`.\CopyPublishedEXEs.ps1` manually to copy both existing published EXEs.
 
 The projects enable compressed single-file publishing and native-library
 self-extraction for `win-x64`. ReadyToRun is disabled to keep executables

@@ -8,5 +8,7 @@
   <ItemGroup>
     <Compile Include="../MidiForwarder.Client/*.cs" Exclude="../MidiForwarder.Client/Program.cs" Link="%(Filename)%(Extension)" />
     <AvaloniaResource Include="../../assets/midi-forwarder.ico" Link="Assets/midi-forwarder.ico" />
+    <AvaloniaResource Include="../../assets/midi-forwarder-256.png" Link="Assets/midi-forwarder-256.png" />
+    <Compile Include="../../tools/BrandAssets.cs" Link="BrandAssets.cs" />
   </ItemGroup>
 </Project>

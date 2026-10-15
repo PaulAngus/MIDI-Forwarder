@@ -37,6 +37,7 @@ public sealed class ServerWindow : Window
     {
         _service = service;
         Title = "MIDI Forwarder Server";
+        Icon = new WindowIcon(BrandAssets.Logo);
         Width = 700;
         Height = 610;
         MinWidth = 580;
@@ -129,7 +130,7 @@ public sealed class ServerWindow : Window
             RowDefinitions = new RowDefinitions("Auto,Auto,Auto,*,Auto"),
             Children =
             {
-                new TextBlock { Text = "MIDI Forwarder Server", FontSize = 24, FontWeight = Avalonia.Media.FontWeight.SemiBold },
+                BrandAssets.CreateHeader("MIDI Forwarder Server"),
                 Place(form, 1),
                 Place(new Border
                 {

@@ -69,6 +69,11 @@ foreach ($role in @('Client', 'Server')) {
         -not (Test-Path -LiteralPath (Join-Path $contents 'Resources/midi-forwarder.icns'))) {
         throw "Missing application icon for $role."
     }
+    $sourceIconHash = (Get-FileHash -LiteralPath (Join-Path $repoRoot 'assets/midi-forwarder.icns')).Hash
+    $bundleIconHash = (Get-FileHash -LiteralPath (Join-Path $contents 'Resources/midi-forwarder.icns')).Hash
+    if ($sourceIconHash -ne $bundleIconHash) {
+        throw "Outdated application icon in the macOS $role bundle."
+    }
     foreach ($binary in Get-ChildItem -LiteralPath (Join-Path $contents 'MacOS') -File) {
         Test-Arm64Binary $binary.FullName
     }
