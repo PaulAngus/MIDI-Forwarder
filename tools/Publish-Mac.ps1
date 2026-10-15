@@ -1,14 +1,15 @@
-param([switch]$SkipBuild)
+param([switch]$SkipBuild, [switch]$ClientOnly)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $outputRoot = Join-Path $repoRoot 'publish/macos-arm64'
 $bundleRoot = Join-Path $outputRoot 'MIDI Forwarder Apple Silicon'
+$roles = if ($ClientOnly) { @('Client') } else { @('Client', 'Server') }
 
 & (Join-Path $PSScriptRoot 'Get-MacMidiDependency.ps1')
 if (-not $SkipBuild) {
-    foreach ($role in @('Client', 'Server')) {
+    foreach ($role in $roles) {
         $project = Join-Path $repoRoot "src/MidiForwarder.$role.Mac/MidiForwarder.$role.Mac.csproj"
         dotnet publish $project -c Release --configfile (Join-Path $repoRoot 'NuGet.Config')
         if ($LASTEXITCODE -ne 0) {
@@ -18,7 +19,7 @@ if (-not $SkipBuild) {
 }
 
 New-Item -ItemType Directory -Path $bundleRoot -Force | Out-Null
-foreach ($role in @('Client', 'Server')) {
+foreach ($role in $roles) {
     $publishFolder = Join-Path $outputRoot $role.ToLowerInvariant()
     $appFolder = Join-Path $bundleRoot "MIDI Forwarder $role.app"
     $contentsFolder = Join-Path $appFolder 'Contents'
@@ -65,7 +66,7 @@ foreach ($role in @('Client', 'Server')) {
 $prepareScript = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Prepare-Mac-Apps.command')).Replace("`r`n", "`n")
 [System.IO.File]::WriteAllText((Join-Path $bundleRoot 'Prepare-Mac-Apps.command'), $prepareScript, [System.Text.UTF8Encoding]::new($false))
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Mac-README.txt') -Destination (Join-Path $bundleRoot 'README.txt') -Force
-& (Join-Path $PSScriptRoot 'Verify-MacPackage.ps1')
+& (Join-Path $PSScriptRoot 'Verify-MacPackage.ps1') -Roles $roles
 
 # Tar preserves Unix executable permissions when this packaging script runs on Windows.
 Add-Type -AssemblyName System.Formats.Tar
@@ -94,7 +95,7 @@ if ($IsMacOS) {
         (Join-Path $HOME 'Applications'),
         '/Applications'
     )
-    foreach ($role in @('Client', 'Server')) {
+    foreach ($role in $roles) {
         $appFolder = Join-Path $bundleRoot "MIDI Forwarder $role.app"
         $executable = Join-Path $appFolder "Contents/MacOS/MidiForwarder.$role"
         & /bin/chmod +x $executable

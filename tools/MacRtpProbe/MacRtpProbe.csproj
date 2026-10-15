@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/MidiForwarder.Midi.CoreMidi/MidiForwarder.Midi.CoreMidi.csproj" />
+    <PackageReference Include="Melanchall.DryWetMidi" Version="8.0.3" ExcludeAssets="build;buildTransitive" GeneratePathProperty="true" />
+    <None Include="$(PkgMelanchall_DryWetMidi)/build/Melanchall_DryWetMidi_Native64.dylib"
+          Link="Melanchall_DryWetMidi_Native64.dylib" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

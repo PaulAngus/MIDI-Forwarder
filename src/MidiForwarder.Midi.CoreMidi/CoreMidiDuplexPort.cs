@@ -12,6 +12,9 @@ public sealed class CoreMidiDuplexPort : IMidiDuplexPort
     private readonly object _gate = new();
     private readonly RtMidiNative.ReceiveCallback _callback;
     private readonly Midi1PacketDecoder _decoder = new();
+    private readonly SemaphoreSlim _sendGate = new(1, 1);
+    private readonly CoreMidiSourcePacer _sourcePacer = new();
+    private CoreMidiVirtualSource? _virtualOutput;
     private IntPtr _input;
     private IntPtr _output;
     private bool _disposed;
@@ -23,7 +26,7 @@ public sealed class CoreMidiDuplexPort : IMidiDuplexPort
         try
         {
             _input = RtMidiNative.Create(true);
-            _output = RtMidiNative.Create(false);
+            if (!virtualPort) { _output = RtMidiNative.Create(false); }
             RtMidiNative.IgnoreTypes(_input, false, false, false);
             RtMidiNative.Check(_input);
             RtMidiNative.SetCallback(_input, _callback, IntPtr.Zero);
@@ -32,7 +35,7 @@ public sealed class CoreMidiDuplexPort : IMidiDuplexPort
             {
                 RtMidiNative.OpenVirtualPort(_input, name);
                 RtMidiNative.Check(_input);
-                RtMidiNative.OpenVirtualPort(_output, name);
+                _virtualOutput = new CoreMidiVirtualSource(name);
             }
             else
             {
@@ -41,7 +44,7 @@ public sealed class CoreMidiDuplexPort : IMidiDuplexPort
                 RtMidiNative.OpenPort(_output, FindPort(_output, name), "MIDI Forwarder Send");
             }
 
-            RtMidiNative.Check(_output);
+            if (!virtualPort) { RtMidiNative.Check(_output); }
         }
         catch
         {
@@ -69,15 +72,57 @@ public sealed class CoreMidiDuplexPort : IMidiDuplexPort
     public IAsyncEnumerable<MidiPacket> ReadAllAsync(CancellationToken cancellationToken) =>
         _messages.Reader.ReadAllAsync(cancellationToken);
 
-    public ValueTask SendAsync(MidiPacket packet, CancellationToken cancellationToken)
+    public async ValueTask SendAsync(MidiPacket packet, CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
+        await _sendGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            byte[]? message = _decoder.Decode(packet);
-            if (message is not null)
+            byte[]? message;
+            lock (_gate)
             {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                message = _decoder.Decode(packet);
+            }
+
+            if (message is null) { return; }
+            if (_virtualOutput is not null)
+            {
+                bool sysex = message[0] == 0xf0;
+                int offset = 0;
+                try
+                {
+                    while (offset < message.Length)
+                    {
+                        int length = Math.Min(CoreMidiVirtualSource.MaximumPacketBytes, message.Length - offset);
+                        int umpBytes = sysex ? ((length + 5) / 6) * 8 : 4;
+                        await _sourcePacer.WaitAsync(umpBytes, cancellationToken).ConfigureAwait(false);
+                        lock (_gate)
+                        {
+                            ObjectDisposedException.ThrowIf(_disposed, this);
+                            _virtualOutput.Send(message.AsSpan(offset, length));
+                        }
+
+                        offset += length;
+                    }
+                }
+                catch (OperationCanceledException) when (sysex && offset > 0 && offset < message.Length)
+                {
+                    // End an interrupted native SysEx stream before a later session sends
+                    // another message through the persistent virtual endpoint.
+                    lock (_gate)
+                    {
+                        if (!_disposed) { _virtualOutput.Send([0xf7]); }
+                    }
+
+                    throw;
+                }
+
+                return;
+            }
+
+            lock (_gate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
                 if (RtMidiNative.SendMessage(_output, message, message.Length) < 0)
                 {
                     RtMidiNative.Check(_output);
@@ -87,8 +132,7 @@ public sealed class CoreMidiDuplexPort : IMidiDuplexPort
                 RtMidiNative.Check(_output);
             }
         }
-
-        return ValueTask.CompletedTask;
+        finally { _sendGate.Release(); }
     }
 
     public ValueTask DisposeAsync()
@@ -110,6 +154,7 @@ public sealed class CoreMidiDuplexPort : IMidiDuplexPort
 
             RtMidiNative.Free(_input, true);
             RtMidiNative.Free(_output, false);
+            _virtualOutput?.Dispose();
             _input = _output = IntPtr.Zero;
             GC.KeepAlive(_callback);
             _decoder.Dispose();
