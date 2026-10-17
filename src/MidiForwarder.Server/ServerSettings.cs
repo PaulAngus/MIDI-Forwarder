@@ -21,6 +21,10 @@ public sealed record ServerSettings
 
     public bool StartWithWindows { get; init; }
 
+    public bool AutoListenOnLaunch { get; init; }
+
+    public bool StartMinimizedToTray { get; init; }
+
     public bool IsComplete =>
 #if MACOS
         !string.IsNullOrWhiteSpace(MidiEndpoint)

@@ -1,0 +1,81 @@
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Styles.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="WindowBrush">#F7F8FC</SolidColorBrush>
+          <SolidColorBrush x:Key="SurfaceBrush">#FFFFFF</SolidColorBrush>
+          <SolidColorBrush x:Key="TextBrush">#1C2637</SolidColorBrush>
+          <SolidColorBrush x:Key="MutedBrush">#637083</SolidColorBrush>
+          <SolidColorBrush x:Key="LineBrush">#E2E7EE</SolidColorBrush>
+          <SolidColorBrush x:Key="SoftBrush">#EEF1F6</SolidColorBrush>
+          <SolidColorBrush x:Key="AccentBrush">#315FD6</SolidColorBrush>
+          <SolidColorBrush x:Key="AccentSoftBrush">#EAF0FF</SolidColorBrush>
+          <SolidColorBrush x:Key="GoodBrush">#167450</SolidColorBrush>
+          <SolidColorBrush x:Key="GoodSoftBrush">#E7F5EE</SolidColorBrush>
+          <SolidColorBrush x:Key="ErrorBrush">#B42318</SolidColorBrush>
+          <SolidColorBrush x:Key="ErrorSoftBrush">#FFF1EF</SolidColorBrush>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="WindowBrush">#171B23</SolidColorBrush>
+          <SolidColorBrush x:Key="SurfaceBrush">#222833</SolidColorBrush>
+          <SolidColorBrush x:Key="TextBrush">#EDF0F7</SolidColorBrush>
+          <SolidColorBrush x:Key="MutedBrush">#ABB5C5</SolidColorBrush>
+          <SolidColorBrush x:Key="LineBrush">#343D4A</SolidColorBrush>
+          <SolidColorBrush x:Key="SoftBrush">#2A323F</SolidColorBrush>
+          <SolidColorBrush x:Key="AccentBrush">#A6BFFF</SolidColorBrush>
+          <SolidColorBrush x:Key="AccentSoftBrush">#293950</SolidColorBrush>
+          <SolidColorBrush x:Key="GoodBrush">#82D9B0</SolidColorBrush>
+          <SolidColorBrush x:Key="GoodSoftBrush">#243D34</SolidColorBrush>
+          <SolidColorBrush x:Key="ErrorBrush">#FFB4AB</SolidColorBrush>
+          <SolidColorBrush x:Key="ErrorSoftBrush">#4A2527</SolidColorBrush>
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Styles.Resources>
+    <Style Selector="TextBlock.secondary">
+      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style Selector="TextBlock.sectionTitle"><Setter Property="FontWeight" Value="Medium" /></Style>
+    <Style Selector="Button">
+      <Setter Property="MinHeight" Value="32" /><Setter Property="CornerRadius" Value="4" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" /><Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource SoftBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+    </Style>
+    <Style Selector="Button.quiet"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /></Style>
+    <Style Selector="Button.accent"><Setter Property="Background" Value="{DynamicResource AccentBrush}" /><Setter Property="Foreground" Value="{DynamicResource WindowBrush}" /></Style>
+    <Style Selector="Button.accent:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentBrush}" /><Setter Property="Foreground" Value="{DynamicResource WindowBrush}" />
+    </Style>
+    <Style Selector="Border.settingCard">
+      <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+      <Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="8" /><Setter Property="Padding" Value="16" />
+    </Style>
+    <Style Selector="ComboBox"><Setter Property="HorizontalAlignment" Value="Stretch" /></Style>
+    <Style Selector="TabItem"><Setter Property="FontSize" Value="14" /><Setter Property="FontWeight" Value="Medium" /></Style>
+    <Style Selector="Border.status"><Setter Property="Background" Value="{DynamicResource SoftBrush}" /></Style>
+    <Style Selector="Border.status TextBlock"><Setter Property="Foreground" Value="{DynamicResource MutedBrush}" /></Style>
+    <Style Selector="Border.status Ellipse"><Setter Property="Fill" Value="{DynamicResource MutedBrush}" /></Style>
+    <Style Selector="Border.status.listening"><Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" /></Style>
+    <Style Selector="Border.status.listening TextBlock"><Setter Property="Foreground" Value="{DynamicResource AccentBrush}" /></Style>
+    <Style Selector="Border.status.listening Ellipse"><Setter Property="Fill" Value="{DynamicResource AccentBrush}" /></Style>
+    <Style Selector="Border.status.connected"><Setter Property="Background" Value="{DynamicResource GoodSoftBrush}" /></Style>
+    <Style Selector="Border.status.connected TextBlock"><Setter Property="Foreground" Value="{DynamicResource GoodBrush}" /></Style>
+    <Style Selector="Border.status.connected Ellipse"><Setter Property="Fill" Value="{DynamicResource GoodBrush}" /></Style>
+    <Style Selector="Border.status.error"><Setter Property="Background" Value="{DynamicResource ErrorSoftBrush}" /></Style>
+    <Style Selector="Border.status.error TextBlock"><Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" /></Style>
+    <Style Selector="Border.status.error Ellipse"><Setter Property="Fill" Value="{DynamicResource ErrorBrush}" /></Style>
+    <Style Selector="Border.activityLamp"><Setter Property="Background" Value="{DynamicResource SoftBrush}" /></Style>
+    <Style Selector="Border.activityLamp Ellipse"><Setter Property="Fill" Value="{DynamicResource MutedBrush}" /></Style>
+    <Style Selector="Border.activityLamp.active"><Setter Property="Background" Value="{DynamicResource GoodSoftBrush}" /></Style>
+    <Style Selector="Border.activityLamp.active Ellipse"><Setter Property="Fill" Value="{DynamicResource GoodBrush}" /></Style>
+    <Style Selector="TextBlock.activityState.active"><Setter Property="Foreground" Value="{DynamicResource GoodBrush}" /></Style>
+</Styles>

@@ -5,4 +5,6 @@
   <Project Path="src/MidiForwarder.Server/MidiForwarder.Server.csproj" />
   <Project Path="src/MidiForwarder.Client/MidiForwarder.Client.csproj" />
   <Project Path="tests/MidiForwarder.Core.Tests/MidiForwarder.Core.Tests.csproj" />
+  <Project Path="tests/MidiForwarder.Server.Tests/MidiForwarder.Server.Tests.csproj" />
+  <Project Path="tests/MidiForwarder.Client.Tests/MidiForwarder.Client.Tests.csproj" />
 </Solution>

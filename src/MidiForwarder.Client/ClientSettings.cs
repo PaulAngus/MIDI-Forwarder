@@ -24,6 +24,10 @@ public sealed record ClientSettings
 
     public bool StartWithWindows { get; init; }
 
+    public bool AutoConnectOnLaunch { get; init; }
+
+    public bool StartMinimizedToTray { get; init; }
+
     public bool IsComplete =>
 #if MACOS
         (UseAppleNetworkMidi ? !string.IsNullOrWhiteSpace(NetworkMidiEndpoint) : !string.IsNullOrWhiteSpace(InterfaceName))

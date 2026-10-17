@@ -1,14 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <Import Project="../../tools/MacApp.props" />
   <PropertyGroup>
+    <!-- XAML is loaded into the window constructed with its relay service. -->
+    <NoWarn>$(NoWarn);AVLN3001</NoWarn>
     <AssemblyName>MidiForwarder.Client</AssemblyName>
     <DefineConstants>$(DefineConstants);CLIENT</DefineConstants>
     <PublishDir>../../publish/macos-arm64/client/</PublishDir>
   </PropertyGroup>
   <ItemGroup>
+    <AvaloniaResource Include="../MidiForwarder.Client/ClientWindow.axaml" Link="ClientWindow.axaml" />
+    <AvaloniaResource Include="../MidiForwarder.Client/ClientSettingsWindow.axaml" Link="ClientSettingsWindow.axaml" />
     <Compile Include="../MidiForwarder.Client/*.cs" Exclude="../MidiForwarder.Client/Program.cs" Link="%(Filename)%(Extension)" />
     <AvaloniaResource Include="../../assets/midi-forwarder.ico" Link="Assets/midi-forwarder.ico" />
     <AvaloniaResource Include="../../assets/midi-forwarder-256.png" Link="Assets/midi-forwarder-256.png" />
     <Compile Include="../../tools/BrandAssets.cs" Link="BrandAssets.cs" />
+    <Compile Include="../../tools/TrayStatusIndicator.cs" Link="TrayStatusIndicator.cs" />
+    <AvaloniaResource Include="../../tools/FluentUtilityStyles.axaml" Link="Assets/FluentUtilityStyles.axaml" />
   </ItemGroup>
 </Project>

@@ -8,11 +8,12 @@ public static class TcpMidiBridge
         Stream stream,
         IMidiDuplexPort midi,
         Action<string>? log,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        MidiTrafficMonitor? traffic = null)
     {
         using var sessionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        Task midiToNetwork = PumpMidiToNetworkAsync(stream, midi, log, sessionCancellation.Token);
-        Task networkToMidi = PumpNetworkToMidiAsync(stream, midi, log, sessionCancellation.Token);
+        Task midiToNetwork = PumpMidiToNetworkAsync(stream, midi, log, traffic, sessionCancellation.Token);
+        Task networkToMidi = PumpNetworkToMidiAsync(stream, midi, log, traffic, sessionCancellation.Token);
 
         await Task.WhenAny(midiToNetwork, networkToMidi).ConfigureAwait(false);
         await sessionCancellation.CancelAsync().ConfigureAwait(false);
@@ -67,30 +68,31 @@ public static class TcpMidiBridge
         Stream stream,
         IMidiDuplexPort midi,
         Action<string>? log,
+        MidiTrafficMonitor? traffic,
         CancellationToken cancellationToken)
     {
-        var summary = new TrafficSummary("MIDI -> network", log);
+        await using var summary = new TrafficSummary("MIDI -> network", log);
         bool trace = Trace.Enabled;
         await foreach (MidiPacket packet in midi.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
             await WriteFrameAsync(stream, packet, cancellationToken).ConfigureAwait(false);
+            traffic?.RecordMidiToNetwork(packet.Data.Length);
             summary.Add(packet.Data.Length);
             if (trace)
             {
                 Trace.Write("MIDI -> network", packet);
             }
         }
-
-        summary.Flush();
     }
 
     private static async Task PumpNetworkToMidiAsync(
         Stream stream,
         IMidiDuplexPort midi,
         Action<string>? log,
+        MidiTrafficMonitor? traffic,
         CancellationToken cancellationToken)
     {
-        var summary = new TrafficSummary("Network -> MIDI", log);
+        await using var summary = new TrafficSummary("Network -> MIDI", log);
         bool trace = Trace.Enabled;
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -106,14 +108,13 @@ public static class TcpMidiBridge
             }
 
             await midi.SendAsync(packet.Value, cancellationToken).ConfigureAwait(false);
+            traffic?.RecordNetworkToMidi(packet.Value.Data.Length);
             summary.Add(packet.Value.Data.Length);
             if (trace)
             {
                 Trace.Write("sent to MIDI", packet.Value);
             }
         }
-
-        summary.Flush();
     }
 
     private static async Task<bool> ReadExactlyOrEndAsync(
@@ -157,33 +158,74 @@ public static class TcpMidiBridge
     }
 
     // Per-message logging made the UI log (and the server's log file) a bottleneck during bulk SysEx transfers.
-    private sealed class TrafficSummary(string direction, Action<string>? log)
+    private sealed class TrafficSummary : IAsyncDisposable
     {
-        private static readonly long Interval = System.Diagnostics.Stopwatch.Frequency;
-        private long _last = System.Diagnostics.Stopwatch.GetTimestamp();
-        private int _messages;
+        private readonly string _direction;
+        private readonly Action<string>? _log;
+        private readonly Lock _sync = new();
+        private readonly PeriodicTimer? _timer;
+        private readonly Task _reportTask;
+        private long _messages;
         private long _bytes;
+
+        public TrafficSummary(string direction, Action<string>? log)
+        {
+            _direction = direction;
+            _log = log;
+            _timer = log is null ? null : new PeriodicTimer(TimeSpan.FromSeconds(1));
+            _reportTask = ReportAsync();
+        }
 
         public void Add(int length)
         {
-            _messages++;
-            _bytes += length;
-            if (System.Diagnostics.Stopwatch.GetTimestamp() - _last >= Interval)
+            if (_log is null)
+            {
+                return;
+            }
+
+            lock (_sync)
+            {
+                _messages++;
+                _bytes += length;
+            }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            _timer?.Dispose();
+            await _reportTask.ConfigureAwait(false);
+            Flush();
+        }
+
+        private async Task ReportAsync()
+        {
+            if (_timer is null)
+            {
+                return;
+            }
+
+            while (await _timer.WaitForNextTickAsync().ConfigureAwait(false))
             {
                 Flush();
             }
         }
 
-        public void Flush()
+        private void Flush()
         {
-            if (_messages > 0)
+            long messages;
+            long bytes;
+            lock (_sync)
             {
-                log?.Invoke($"{direction}: {_messages} message(s), {_bytes} byte(s)");
+                messages = _messages;
+                bytes = _bytes;
+                _messages = 0;
+                _bytes = 0;
             }
 
-            _messages = 0;
-            _bytes = 0;
-            _last = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (messages > 0)
+            {
+                _log?.Invoke($"{_direction}: {messages} message(s), {bytes} byte(s)");
+            }
         }
     }
 }

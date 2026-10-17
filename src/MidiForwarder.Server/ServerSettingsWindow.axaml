@@ -1,0 +1,123 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="MidiForwarder.Server.ServerSettingsWindow" Title="MIDI Forwarder Server Settings" Width="560" Height="640" MinWidth="440" MinHeight="440" MaxHeight="800" FontSize="14" Background="{DynamicResource WindowBrush}" Foreground="{DynamicResource TextBrush}">
+  <Window.Styles>
+    <StyleInclude Source="/Assets/FluentUtilityStyles.axaml" />
+  </Window.Styles>
+  <Grid RowDefinitions="Auto,Auto,*,Auto">
+    <StackPanel Margin="24,24,24,16" Spacing="4">
+      <TextBlock Text="Settings" FontSize="24" FontWeight="Medium" />
+      <TextBlock Text="MIDI Forwarder Server" Classes="secondary" />
+    </StackPanel>
+    <Border Name="ConfigurationErrorBanner" Grid.Row="1" IsVisible="False" Background="{DynamicResource ErrorSoftBrush}" CornerRadius="8" Padding="12" Margin="24,0,24,16">
+      <TextBlock Name="ConfigurationErrorText" Foreground="{DynamicResource ErrorBrush}" TextWrapping="Wrap" />
+    </Border>
+    <TabControl Name="SettingsTabs" Grid.Row="2" Margin="24,0" SelectedIndex="0">
+      <TabItem Header="Connection">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <StackPanel Spacing="16" Margin="0,20,8,20">
+            <TextBlock Text="Connection" FontSize="20" FontWeight="Medium" />
+            <TextBlock Name="ConnectionEditHelp" Text="Save your connection settings, then start listening from the main window." Classes="secondary" TextWrapping="Wrap" />
+            <StackPanel Spacing="16" Margin="0">
+              <StackPanel Name="EndpointFields" Spacing="8">
+                <TextBlock Text="Physical MIDI endpoint" />
+                <ComboBox Name="MidiEndpoint" AutomationProperties.Name="Physical MIDI endpoint" />
+              </StackPanel>
+              <StackPanel Name="LegacyFields" Spacing="16" IsVisible="False">
+                <StackPanel Spacing="8">
+                  <TextBlock Text="Physical MIDI input" />
+                  <ComboBox Name="MidiInput" AutomationProperties.Name="Physical MIDI input" />
+                </StackPanel>
+                <StackPanel Spacing="8">
+                  <TextBlock Text="Physical MIDI output" />
+                  <ComboBox Name="MidiOutput" AutomationProperties.Name="Physical MIDI output" />
+                </StackPanel>
+              </StackPanel>
+              <Button Name="RefreshEndpointsButton" Classes="quiet" Content="Refresh MIDI endpoints" HorizontalAlignment="Left" />
+              <StackPanel Spacing="8">
+                <TextBlock Text="TCP listen address" />
+                <TextBox Name="ListenUrl" Watermark="tcp://0.0.0.0:5180" AutomationProperties.Name="TCP listen address" />
+              </StackPanel>
+              <StackPanel Spacing="8">
+                <TextBlock Text="Shared token" />
+                <TextBox Name="Token" PasswordChar="●" AutomationProperties.Name="Shared token" />
+              </StackPanel>
+            </StackPanel>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+      <TabItem Header="Startup">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <StackPanel Spacing="16" Margin="0,20,8,20">
+            <TextBlock Text="Startup" FontSize="20" FontWeight="Medium" />
+            <TextBlock Text="Choose what happens when you open the app. Changes are saved immediately." Classes="secondary" TextWrapping="Wrap" />
+            <Border Classes="settingCard">
+              <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Spacing="4" Margin="0,0,16,0">
+                  <TextBlock Name="StartWithSystemLabel" Text="Start with Windows" TextWrapping="Wrap" FontWeight="Medium" />
+                  <TextBlock Text="Launch MIDI Forwarder when you sign in." Classes="secondary" TextWrapping="Wrap" />
+                </StackPanel>
+                <ToggleSwitch Name="StartWithSystem" Grid.Column="1" OffContent="" OnContent="" VerticalAlignment="Center" AutomationProperties.Name="Start with Windows" />
+              </Grid>
+            </Border>
+            <Border Classes="settingCard">
+              <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Spacing="4" Margin="0,0,16,0">
+                  <TextBlock Text="Listen automatically on launch" TextWrapping="Wrap" FontWeight="Medium" />
+                  <TextBlock Text="Start listening with the last saved endpoint, address, and token." Classes="secondary" TextWrapping="Wrap" />
+                </StackPanel>
+                <ToggleSwitch Name="AutoListenOnLaunch" Grid.Column="1" OffContent="" OnContent="" VerticalAlignment="Center" AutomationProperties.Name="Listen automatically on launch" />
+              </Grid>
+            </Border>
+            <Border Classes="settingCard">
+              <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Spacing="4" Margin="0,0,16,0">
+                  <TextBlock Text="Start minimized to tray" TextWrapping="Wrap" FontWeight="Medium" />
+                  <TextBlock Text="Open in the system tray. Use Open Settings from the tray icon to return here." Classes="secondary" TextWrapping="Wrap" />
+                </StackPanel>
+                <ToggleSwitch Name="StartMinimizedToTray" Grid.Column="1" OffContent="" OnContent="" VerticalAlignment="Center" AutomationProperties.Name="Start minimized to tray" />
+              </Grid>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+      <TabItem Header="Diagnostics">
+        <Grid Name="DiagnosticsPage" RowDefinitions="Auto,Auto,*,Auto" Margin="0,20,0,20">
+          <StackPanel Name="DiagnosticsHeader" Spacing="16" Margin="0,0,0,16">
+            <TextBlock Text="Diagnostics" FontSize="20" FontWeight="Medium" />
+            <TextBlock Text="Connection activity and logs update while this window is open." Classes="secondary" TextWrapping="Wrap" />
+          </StackPanel>
+          <StackPanel Grid.Row="1" Spacing="8" Margin="0,0,0,12">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="Message counts" Classes="sectionTitle" />
+                <TextBlock Name="TrafficSession" Grid.Column="1" Text="No traffic yet" Classes="secondary" />
+              </Grid>
+              <Grid Name="TotalsGrid" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto">
+                <StackPanel Name="ToClientTotals" Spacing="4">
+                  <TextBlock Text="Device → client" Classes="secondary" />
+                  <TextBlock Name="ToClientMessages" Text="0 messages" FontSize="18" FontWeight="Medium" />
+                  <TextBlock Name="ToClientBytes" Text="0 B forwarded" Classes="secondary" />
+                </StackPanel>
+                <StackPanel Name="ToDeviceTotals" Grid.Column="1" Spacing="4">
+                  <TextBlock Text="Client → device" Classes="secondary" />
+                  <TextBlock Name="ToDeviceMessages" Text="0 messages" FontSize="18" FontWeight="Medium" />
+                  <TextBlock Name="ToDeviceBytes" Text="0 B forwarded" Classes="secondary" />
+                </StackPanel>
+              </Grid>
+          </StackPanel>
+          <Grid Grid.Row="2" RowDefinitions="Auto,*">
+            <TextBlock Text="Connection log" Classes="sectionTitle" Margin="0,0,0,8" />
+            <TextBox Name="LogText" Grid.Row="1" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" FontFamily="Consolas, Menlo, monospace" FontSize="12" MinHeight="0" VerticalAlignment="Stretch" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Connection log" />
+          </Grid>
+          <TextBlock Name="BackendDescription" Grid.Row="3" Classes="secondary" TextWrapping="Wrap" Margin="0,8,0,0" />
+        </Grid>
+      </TabItem>
+    </TabControl>
+    <Border Grid.Row="3" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="24,12">
+      <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto,Auto">
+        <TextBlock Name="SaveStatus" Grid.ColumnSpan="3" Classes="secondary" IsVisible="False" TextWrapping="Wrap" Margin="0,0,0,8" />
+        <Button Name="SettingsConnectionButton" Grid.Row="1" Content="Start server" HorizontalAlignment="Left" MinWidth="104" />
+        <Button Name="SaveConnectionButton" Grid.Row="1" Grid.Column="1" Classes="accent" Content="Save" MinWidth="80" />
+        <Button Name="CloseSettingsButton" Grid.Row="1" Grid.Column="2" Content="Close" MinWidth="80" Margin="8,0,0,0" IsCancel="True" />
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

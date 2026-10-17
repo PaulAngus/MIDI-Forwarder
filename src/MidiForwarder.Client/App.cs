@@ -1,7 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.Platform;
 using Avalonia.Threading;
 using Avalonia.Themes.Fluent;
 using System.Diagnostics.CodeAnalysis;
@@ -14,6 +13,7 @@ public sealed class App : Application
     private ClientRelayService? _service;
     private ClientWindow? _window;
     private TrayIcon? _trayIcon;
+    private TrayStatusIndicator? _trayStatus;
     private IClassicDesktopStyleApplicationLifetime? _desktop;
     private Task? _quitTask;
 
@@ -31,28 +31,22 @@ public sealed class App : Application
             _service = new ClientRelayService();
             _window = new ClientWindow(_service);
             _window.QuitRequested += (_, _) => _ = QuitAsync();
-            desktop.MainWindow = _window;
-            CreateTrayIcon();
+            CreateTrayIcon(_service);
             Dispatcher.UIThread.Post(async () =>
             {
-                if (ClientWindow.HasSavedSettings)
-                {
-                    await _window.AutoStartAsync().ConfigureAwait(true);
-                }
-                else
-                {
-                    _window.ShowConfiguration();
-                }
+                await _window.InitializeAsync().ConfigureAwait(true);
+                // Assign after startup so Avalonia does not show the window before applying the tray preference.
+                desktop.MainWindow = _window;
             });
         }
 
         base.OnFrameworkInitializationCompleted();
     }
 
-    private void CreateTrayIcon()
+    private void CreateTrayIcon(ClientRelayService service)
     {
-        using Stream iconStream = AssetLoader.Open(new Uri("avares://MidiForwarder.Client/Assets/midi-forwarder.ico"));
-        var icon = new WindowIcon(iconStream);
+        var show = new NativeMenuItem("Open MIDI Forwarder");
+        show.Click += (_, _) => _window?.ShowMainWindow();
         var open = new NativeMenuItem("Open Settings");
         open.Click += (_, _) => _window?.ShowConfiguration();
         var stop = new NativeMenuItem("Disconnect");
@@ -60,25 +54,38 @@ public sealed class App : Application
         var quit = new NativeMenuItem("Quit");
         quit.Click += (_, _) => _ = QuitAsync();
         var menu = new NativeMenu();
+        menu.Items.Add(show);
         menu.Items.Add(open);
         menu.Items.Add(stop);
         menu.Items.Add(new NativeMenuItemSeparator());
         menu.Items.Add(quit);
         _trayIcon = new TrayIcon
         {
-            Icon = icon,
-            ToolTipText = "MIDI Forwarder Client",
             Menu = menu,
-            IsVisible = true,
         };
-        _trayIcon.Clicked += (_, _) => _window?.ShowConfiguration();
+        _trayStatus = new TrayStatusIndicator(_trayIcon, stop, "MIDI Forwarder Client", () => GetTrayStatus(service));
+        service.StatusChanged += _trayStatus.OnStatusChanged;
+        _trayIcon.IsVisible = true;
+        _trayIcon.Clicked += (_, _) => _window?.ShowMainWindow();
         TrayIcon.SetIcons(this, new TrayIcons { _trayIcon });
     }
 
     private Task QuitAsync() => _quitTask ??= QuitCoreAsync();
 
+    internal static TrayStatus GetTrayStatus(ClientRelayService service) => !service.IsRunning
+        ? new(TrayConnectionState.Inactive, "Disconnected")
+        : service.IsConnected
+            ? new(TrayConnectionState.Active, "Connected")
+            : new(TrayConnectionState.Connecting, service.ConnectionStatus);
+
     private async Task QuitCoreAsync()
     {
+        if (_trayStatus is not null)
+        {
+            if (_service is not null) { _service.StatusChanged -= _trayStatus.OnStatusChanged; }
+            _trayStatus.Dispose();
+        }
+
         if (_window is not null)
         {
             _window.IsEnabled = false;

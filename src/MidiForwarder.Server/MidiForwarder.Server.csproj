@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <!-- The relay service is injected; XAML is loaded into the existing window, never instantiated by URI. -->
+    <NoWarn>$(NoWarn);AVLN3001</NoWarn>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <!-- Compile with the newer SDK, but allow Windows 10 1809 and later at runtime. -->
     <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
@@ -28,6 +30,8 @@
     <AvaloniaResource Include="../../assets/midi-forwarder.ico" Link="Assets/midi-forwarder.ico" />
     <AvaloniaResource Include="../../assets/midi-forwarder-256.png" Link="Assets/midi-forwarder-256.png" />
     <Compile Include="../../tools/BrandAssets.cs" Link="BrandAssets.cs" />
+    <Compile Include="../../tools/TrayStatusIndicator.cs" Link="TrayStatusIndicator.cs" />
+    <AvaloniaResource Include="../../tools/FluentUtilityStyles.axaml" Link="Assets/FluentUtilityStyles.axaml" />
   </ItemGroup>
 </Project>
 

@@ -14,6 +14,20 @@ public sealed class ClientRelayService : IAsyncDisposable
     private CancellationTokenSource? _cancellation;
     private Task? _runTask;
     private IMidiDuplexPort? _midi;
+#if !MACOS
+    private readonly Func<ClientSettings, IMidiDuplexPort> _openMidi;
+
+    public ClientRelayService() : this(static settings =>
+        WindowsMidiBackend.OpenClient(settings.InterfaceName, settings.MidiInput, settings.MidiOutput))
+    {
+    }
+
+    internal ClientRelayService(Func<ClientSettings, IMidiDuplexPort> openMidi)
+    {
+        ArgumentNullException.ThrowIfNull(openMidi);
+        _openMidi = openMidi;
+    }
+#endif
 #if MACOS
     private CoreMidiNetworkPort? _networkMidi;
 #endif
@@ -23,6 +37,14 @@ public sealed class ClientRelayService : IAsyncDisposable
     public event EventHandler<string>? StatusChanged;
 
     public bool IsRunning => _cancellation is not null;
+
+    public bool IsConnected { get; private set; }
+
+    public string ConnectionStatus { get; private set; } = "Stopped";
+
+    public string? LastConnectionError { get; private set; }
+
+    public MidiTrafficMonitor Traffic { get; } = new();
 
     public Task StartAsync(ClientSettings settings)
     {
@@ -50,13 +72,15 @@ public sealed class ClientRelayService : IAsyncDisposable
             WriteLog($"Created compatibility virtual MIDI input/output: {settings.InterfaceName}");
         }
 #else
-        IMidiDuplexPort midi = WindowsMidiBackend.OpenClient(settings.InterfaceName, settings.MidiInput, settings.MidiOutput);
+        IMidiDuplexPort midi = _openMidi(settings);
         WriteLog(WindowsMidiBackend.Capabilities.Description);
         WriteLog($"MIDI input: {midi.InputName}; output: {midi.OutputName}");
 #endif
         var cancellation = new CancellationTokenSource();
         _midi = midi;
         _cancellation = cancellation;
+        Traffic.Reset();
+        LastConnectionError = null;
         SetStatus("Connecting");
         _runTask = RunReconnectLoopAsync(serverUri, settings.Token, midi, cancellation.Token);
         return Task.CompletedTask;
@@ -64,6 +88,7 @@ public sealed class ClientRelayService : IAsyncDisposable
 
     public async Task StopAsync()
     {
+        IsConnected = false;
         CancellationTokenSource? cancellation = Interlocked.Exchange(ref _cancellation, null);
         Task? runTask = Interlocked.Exchange(ref _runTask, null);
         IMidiDuplexPort? midi = Interlocked.Exchange(ref _midi, null);
@@ -133,9 +158,17 @@ public sealed class ClientRelayService : IAsyncDisposable
                 NetworkStream stream = client.GetStream();
                 await TcpAuthentication.SendAsync(stream, token, cancellationToken).ConfigureAwait(false);
                 retrySeconds = 1;
+                Traffic.Reset();
+                LastConnectionError = null;
+                IsConnected = true;
                 SetStatus("Connected");
                 WriteLog("Connected to server using low-latency TCP (TCP_NODELAY).");
-                await TcpMidiBridge.RunAsync(stream, connectionMidi, null, cancellationToken).ConfigureAwait(false);
+                await TcpMidiBridge.RunAsync(stream, connectionMidi, WriteLog, cancellationToken, Traffic).ConfigureAwait(false);
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    LastConnectionError = "The server closed the connection. Check the server and shared token.";
+                    WriteLog(LastConnectionError);
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -147,10 +180,12 @@ public sealed class ClientRelayService : IAsyncDisposable
 #endif
                 )
             {
+                LastConnectionError = error.Message;
                 WriteLog($"Connection ended: {error.Message}");
             }
             finally
             {
+                IsConnected = false;
                 if (connectionMidi is not null && !ReferenceEquals(connectionMidi, midi))
                 {
                     await connectionMidi.DisposeAsync().ConfigureAwait(false);
@@ -168,5 +203,10 @@ public sealed class ClientRelayService : IAsyncDisposable
 
     private void WriteLog(string message) => LogMessage?.Invoke(this, message);
 
-    private void SetStatus(string status) => StatusChanged?.Invoke(this, status);
+    private void SetStatus(string status)
+    {
+        ConnectionStatus = status;
+        StatusChanged?.Invoke(this, status);
+        WriteLog(status);
+    }
 }

@@ -1,13 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <Import Project="../../tools/MacApp.props" />
   <PropertyGroup>
+    <!-- The relay service is injected; XAML is loaded into the existing window, never instantiated by URI. -->
+    <NoWarn>$(NoWarn);AVLN3001</NoWarn>
     <AssemblyName>MidiForwarder.Server</AssemblyName>
     <PublishDir>../../publish/macos-arm64/server/</PublishDir>
   </PropertyGroup>
   <ItemGroup>
+    <AvaloniaResource Include="../MidiForwarder.Server/ServerWindow.axaml" Link="ServerWindow.axaml" />
+    <AvaloniaResource Include="../MidiForwarder.Server/ServerSettingsWindow.axaml" Link="ServerSettingsWindow.axaml" />
     <Compile Include="../MidiForwarder.Server/*.cs" Exclude="../MidiForwarder.Server/Program.cs" Link="%(Filename)%(Extension)" />
     <AvaloniaResource Include="../../assets/midi-forwarder.ico" Link="Assets/midi-forwarder.ico" />
     <AvaloniaResource Include="../../assets/midi-forwarder-256.png" Link="Assets/midi-forwarder-256.png" />
     <Compile Include="../../tools/BrandAssets.cs" Link="BrandAssets.cs" />
+    <Compile Include="../../tools/TrayStatusIndicator.cs" Link="TrayStatusIndicator.cs" />
+    <AvaloniaResource Include="../../tools/FluentUtilityStyles.axaml" Link="Assets/FluentUtilityStyles.axaml" />
   </ItemGroup>
 </Project>

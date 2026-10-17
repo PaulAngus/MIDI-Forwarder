@@ -2,6 +2,8 @@
 
 Shared MIDI implementation: see [dependency and setup notes](dependencies/midi/README.md). Current and legacy backends come from the `MightBeUseful.Midi` packages maintained in [MIDIHelperLibrary](https://github.com/PaulAngus/MIDIHelperLibrary); earlier implementation/package details below describe the pre-migration builds.
 
+For loopMIDI on older Windows, see the [setup instructions](#loopmidi-setup-on-older-windows).
+
 Both Client and Server use the **DIN Send** socket-and-arrow logo in their app headers, window/tray icons and published Windows/macOS application icons. Branding exports and verification notes are in [Branding](Branding/README.md).
 
 MIDI Forwarder makes a physical MIDI interface connected to one Windows PC
@@ -88,7 +90,7 @@ shared token byte-for-byte.
    must be between 1 and 65535.
 4. Enter a long, unique **Shared token**. A token is required when listening
    beyond the local machine; loopback-only listeners may use an empty token.
-5. Click **Save and Start**.
+5. Click **Start server**.
 6. Allow inbound TCP port 5180 (or your chosen port) in Windows Firewall only
    from the development computer or trusted LAN.
 
@@ -97,17 +99,39 @@ closed while another client is relaying.
 
 ### Client (computer running the MIDI application)
 
-On Windows 10, or when the log reports WinMM:
+#### loopMIDI setup on older Windows
 
-1. In loopMIDI (or another virtual cable driver), create two cables named
-   `MIDI Fwd From App` and `MIDI Fwd To App`. Keep the cable software running;
-   enable its startup option if MIDI Forwarder starts automatically.
-2. In MIDI Forwarder, select `MIDI Fwd From App` as **From MIDI app (input)**
-   and `MIDI Fwd To App` as **To MIDI app (output)**. Click **Refresh MIDI Ports**
-   if needed. The two selections must be different to avoid feedback.
-3. Enter the server TCP address and matching shared token, then click **Save and Connect**.
-4. In your MIDI application, select `MIDI Fwd From App` as its **output** and
-   `MIDI Fwd To App` as its **input**. These are reversed relative to the forwarder.
+Use this on supported Windows versions when the Client uses the legacy MIDI backend, including Windows 10 and earlier Windows 11 releases. The shared library selects that backend automatically when the current Windows API/loopback is unavailable. Windows MIDI Services and the optional current API installer are not required for this route.
+
+1. On the **client PC**, download and install [loopMIDI from Tobias Erichsen](https://www.tobias-erichsen.de/software/loopmidi.html), then start it. This is the PC running the MIDI application, such as PresetMaestro; the hardware/server PC normally uses its physical USB/MIDI ports and does not need loopMIDI.
+2. Create two ports named `MIDI Fwd From App` and `MIDI Fwd To App`. Each cable appears in both input and output lists. Keep the names distinct and select them exactly as shown below.
+3. Keep loopMIDI running in the tray. Enable its autostart option if the MIDI apps start at sign-in. Its ports are available only while it runs, under the same Windows user account as the MIDI apps.
+4. In the Client's connection settings, click **Refresh MIDI ports**. Set **From MIDI app (input)** to `MIDI Fwd From App` and **To MIDI app (output)** to `MIDI Fwd To App`.
+5. In the MIDI application, choose `MIDI Fwd From App` as its **output** and `MIDI Fwd To App` as its **input**. This is the same arrangement used in PresetMaestro's loopMIDI guide.
+
+| Application | MIDI input (receives) | MIDI output (sends) |
+|---|---|---|
+| MIDI application, e.g. PresetMaestro | `MIDI Fwd To App` | `MIDI Fwd From App` |
+| MIDI-Forwarder Client | `MIDI Fwd From App` | `MIDI Fwd To App` |
+
+6. Start the Server with its physical MIDI ports selected. Enter its TCP address and the same shared token in the Client, save/apply the connection settings, and connect the Client.
+7. Send a known preset change from the MIDI application and check that the hardware responds. For bidirectional device queries/SysEx, also confirm that replies return to the application through `MIDI Fwd To App`. The computer-to-computer link is supplied by MIDI-Forwarder; loopMIDI only connects the programs on the client PC.
+
+Use **two different cables** for the two directions. Selecting the same cable for both Client ports creates feedback and is rejected. Also avoid MIDI echo/thru settings that send received data straight back onto the sending cable.
+
+**Ports missing or no response?** Create both ports before opening the MIDI apps, refresh the port list, or restart an app that only discovers ports at startup. Check that loopMIDI is running, the Windows user account and port names match, and the MIDI application's channel matches the hardware. If MIDI is routed correctly but the Client keeps reconnecting, check the Server address, shared token and firewall settings separately.
+
+If you need to force the shared legacy backend, close the Client and run this PowerShell block from its executable folder:
+
+```powershell
+$env:MBU_MIDI_BACKEND = 'legacy'
+.\MidiForwarder.Client.exe --midi-backend | Out-Host
+.\MidiForwarder.Client.exe
+```
+
+The backend check should report **Legacy MIDI 1.0**. This affects programs launched from that shell and uses the same setting as PresetMaestro and Preset Sender. To return to automatic selection, run `Remove-Item Env:MBU_MIDI_BACKEND` in that shell and restart the Client.
+
+#### Built-in ports on current Windows
 
 On Windows 11 with Windows MIDI Services and loopback available:
 
@@ -118,7 +142,7 @@ On Windows 11 with Windows MIDI Services and loopback available:
 3. Enter the server address, for example
    `tcp://192.168.2.155:5180`.
 4. Enter exactly the same shared token as on the server.
-5. Click **Save and Connect**.
+5. Click **Connect**.
 6. In the local MIDI application, select the generated endpoint
    `MIDI Forwarder` for both MIDI input and MIDI output.
 
@@ -132,11 +156,58 @@ virtual endpoint alive.
 ## Configuration and lifecycle
 
 Both applications start with a configuration window on first launch. After a
-successful **Save and Start**/**Save and Connect**, they can hide to the
+successful **Start server**/**Connect**, they can hide to the
 notification area. Closing the window hides it; it does not stop the relay.
 Use the tray menu or the window's **Stop**/**Disconnect** button to stop it.
 The window **Quit** button and tray **Quit** command stop the MIDI and TCP resources before the process
 exits.
+
+The client's **Settings → Startup** page includes **Connect automatically on launch**.
+It defaults to off, including for older configurations without this preference.
+When off, the client loads the last saved settings and waits for **Connect**.
+When enabled, it starts trying to connect using those settings whenever the app
+opens, with the usual retries if the server is unavailable. The choice saves
+immediately, even while connected, without changing the current connection.
+Existing saved connection settings are preserved when changing this choice.
+**Start with Windows** controls launching the app
+at sign-in separately; enable both options to connect at sign-in.
+
+The server has the matching **Listen automatically on launch** option in
+**Settings → Startup**, also off by default, including for older configurations.
+When enabled, launching the server starts listening with its last saved endpoint,
+TCP address, and token. When off, those settings load and the server waits for
+**Start server**. The choice saves immediately and can be changed while listening
+without stopping the server or changing its saved connection settings.
+Enable **Start with Windows** as well to start listening at sign-in.
+
+Both apps also have **Start minimized to tray** in **Settings → Startup**, off by
+default for new and existing configurations. This choice saves immediately and
+applies on the next launch. It controls the window independently of automatic
+connection/listening and **Start with Windows**. Enable the automatic connection
+or listening option as well to run the relay in the background at launch.
+Choose **Open Settings** from the tray icon to restore the window. First-time
+setup and startup configuration/device errors still open the window.
+
+The **Startup** page groups **Start with Windows**, automatic connection/listening,
+and **Start minimized to tray** as switches that save immediately. On macOS,
+**Start with Windows** is labeled **Start at login**.
+
+Open **Settings** from the main window or **Open Settings** from the tray menu.
+The separate Settings window has three fixed pages: **Connection**, **Startup**,
+and **Diagnostics**. Connection changes require **Save** and can be saved without
+connecting or opening MIDI hardware. Closing Settings discards connection edits
+that have not been saved. Disconnect or stop the server before editing an active
+connection. The main window's **Connect**/**Start server** uses the saved configuration.
+Settings also has a **Connect**/**Start server** button that saves connection edits
+and starts the relay. It changes to **Disconnect**/**Stop server** while running
+and remains available on every settings page. The **Diagnostics** page fits the
+window, with scrolling confined to the connection log.
+Clicking the tray icon or choosing **Open MIDI Forwarder** restores the main window.
+Tray icons show a **green check** when the client is connected or the server is
+listening, an **amber clock** while the client connects or retries, and a **gray
+dash** when disconnected or stopped. Hover over an icon for its current status.
+The badges update even when the windows are hidden. A listening server stays
+green while waiting for a client; its hover text also indicates a connected client.
 
 Settings are JSON files under:
 
@@ -146,7 +217,7 @@ Settings are JSON files under:
 ```
 
 The files contain the selected port names, TCP address, token, interface name,
-and the **Start automatically with Windows** choice. Saving uses a temporary
+and the startup preferences. Saving uses a temporary
 file followed by replacement. Enabling startup writes a per-user entry under
 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`; it works from a
 published executable, not from `dotnet run`.
@@ -224,7 +295,32 @@ set `$env:MIDI_FORWARDER_MIDI_API = 'winmm'` before starting either app.
 
 ## Diagnostics and logs
 
+Both applications use compact 520-pixel Fluent windows with shared light and dark themes.
+The server's main view shows the selected endpoint, client connection, and two MIDI
+activity lights. Each light stays on briefly after a packet is successfully
+forwarded in that direction and returns to idle when traffic stops.
+Open **Settings → Diagnostics** for message/byte totals and timestamped connection logs;
+the last connection's totals remain available after disconnect. Counts reset
+when the server restarts or a new client successfully opens the MIDI endpoint. **Settings → Connection**
+contains the endpoint selection, listen address, and masked shared token. The
+**Save** button saves these settings; stop the server to edit them.
+First launch and configuration errors open the Settings window automatically.
+
+The client has the same layout, with **MIDI app → server** and **Server → MIDI app**
+activity lights. Its **Connect** button starts the relay with the saved settings;
+**Disconnect** also stops automatic retries. Open **Settings → Diagnostics** for connection
+logs and per-connection message/byte totals. Totals remain available while
+disconnected or retrying and reset on the next connection. **Settings → Connection**
+retains Windows MIDI Services, legacy virtual-cable, and macOS Apple network MIDI
+options, with the shared token masked. On macOS, Audio MIDI Setup remains available
+while the client is waiting for its local MIDI connection.
+
 The live configuration window shows timestamped status and connection messages.
+The server reports when it is waiting for a network client and opens the selected
+physical MIDI endpoint after that client authenticates. The Diagnostics log
+includes a message and byte summary for each active direction once per second,
+including single messages and short bursts. Pending summaries are also logged
+on disconnect; the totals and activity lights are measured independently.
 Server messages are also appended to:
 
 ```text
@@ -233,8 +329,8 @@ Server messages are also appended to:
 
 The server records startup, unhandled exceptions, selected physical ports,
 client authentication failures, connection transitions, and shutdown. The
-client keeps its live log in the window; its connection loop reports failures
-and retry delays there.
+client keeps its live log in **Diagnostics**; its connection loop reports failures,
+retry delays, and traffic summaries there.
 
 ## Network protocol
 
