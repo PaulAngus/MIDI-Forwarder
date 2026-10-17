@@ -31,6 +31,7 @@ public sealed class ClientWindowTests
         try
         {
             window.ShowMainWindow();
+            await window.MidiDiscoveryTask;
             window.UpdateLayout();
             Dispatcher.UIThread.RunJobs();
             double mainHeight = window.Bounds.Height;

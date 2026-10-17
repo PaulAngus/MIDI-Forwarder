@@ -6,11 +6,8 @@ using Avalonia.Threading;
 using MidiForwarder.Core;
 #if MACOS
 using WindowsStartupRegistration = MidiForwarder.Midi.CoreMidi.MacStartupRegistration;
-using PhysicalMidiEndpointCatalog = MightBeUseful.Midi.CoreMidi.CoreMidiPortCatalog;
 #else
 using WindowsStartupRegistration = MidiForwarder.Midi.WinMM.WindowsStartupRegistration;
-using MightBeUseful.Midi.Windows;
-using WinMmPortCatalog = MightBeUseful.Midi.Windows.LegacyMidiPortCatalog;
 #endif
 using System.Diagnostics.CodeAnalysis;
 
@@ -50,12 +47,13 @@ public sealed partial class ServerWindow : Window
     }
 
     internal ServerWindow(ServerRelayService service, Func<ServerSettings?> loadSettings, Action<ServerSettings> saveSettings,
-        Action<bool>? setStartupRegistration = null)
+        Action<bool>? setStartupRegistration = null, MidiDeviceDiscovery? midiDiscovery = null)
     {
         _service = service;
         _loadSettings = loadSettings;
         _saveSettings = saveSettings;
         _setStartupRegistration = setStartupRegistration ?? (enabled => WindowsStartupRegistration.SetEnabled(StartupName, enabled));
+        _midiDiscovery = midiDiscovery ?? new MidiDeviceDiscovery(DiscoverMidiDevices);
         AvaloniaXamlLoader.Load(this);
         _configuration = new ServerSettingsWindow();
         _midiEndpoint = View<ComboBox>("MidiEndpoint");
@@ -84,7 +82,7 @@ public sealed partial class ServerWindow : Window
             }
         };
         _toggleButton.Click += async (_, _) => await ToggleServerAsync().ConfigureAwait(true);
-        View<Button>("RefreshEndpointsButton").Click += (_, _) => RefreshPorts();
+        View<Button>("RefreshEndpointsButton").Click += async (_, _) => await RefreshMidiDevicesAsync().ConfigureAwait(true);
         View<Button>("HideButton").Click += (_, _) => HideToTray();
         View<Button>("SettingsButton").Click += (_, _) => ShowConfiguration();
         View<Button>("SaveConnectionButton").Click += (_, _) => SaveConnectionSettings();
@@ -128,13 +126,12 @@ public sealed partial class ServerWindow : Window
         Avalonia.Automation.AutomationProperties.SetName(_startWithWindows, "Start at login");
         View<TextBlock>("BackendDescription").Text = "CoreMIDI";
 #else
-        bool modern = WindowsMidiBackend.Capabilities.UseMidiServices;
-        View<StackPanel>("EndpointFields").IsVisible = modern;
-        View<StackPanel>("LegacyFields").IsVisible = !modern;
-        View<TextBlock>("BackendDescription").Text = WindowsMidiBackend.Capabilities.Description;
+        View<StackPanel>("EndpointFields").IsVisible = false;
+        View<StackPanel>("LegacyFields").IsVisible = false;
+        View<TextBlock>("BackendDescription").Text = _midiDevices.Description;
 #endif
-        RefreshPorts();
         RefreshPresentation();
+        _initialMidiDiscovery = RefreshMidiDevicesAsync();
     }
 
     public event EventHandler? QuitRequested;
@@ -150,6 +147,7 @@ public sealed partial class ServerWindow : Window
             if (settings is null)
             {
                 ShowConfiguration();
+                await _initialMidiDiscovery.ConfigureAwait(true);
                 return;
             }
 
@@ -157,14 +155,16 @@ public sealed partial class ServerWindow : Window
             _savedSettings = settings;
             ApplySettings(settings);
             RefreshPresentation();
-            if (settings.AutoListenOnLaunch)
-            {
-                await StartAsync(settings).ConfigureAwait(true);
-            }
-
             if (!settings.StartMinimizedToTray)
             {
                 ShowMainWindow();
+            }
+            await _initialMidiDiscovery.ConfigureAwait(true);
+            if (_closed) { return; }
+            if (!_midiReady) { ShowConfiguration(); return; }
+            if (settings.AutoListenOnLaunch)
+            {
+                await StartAsync(settings).ConfigureAwait(true);
             }
         }
         catch (Exception error)
@@ -219,6 +219,7 @@ public sealed partial class ServerWindow : Window
 
     public void AllowClose()
     {
+        _closed = true;
         _allowClose = true;
         _configuration.IsEnabled = false;
         _configuration.Close();
@@ -226,7 +227,7 @@ public sealed partial class ServerWindow : Window
 
     private async Task ToggleServerAsync()
     {
-        if (_busy)
+        if (_busy || (!_service.IsRunning && (!_midiReady || _refreshingMidi)))
         {
             return;
         }
@@ -261,7 +262,7 @@ public sealed partial class ServerWindow : Window
     [SuppressMessage("Design", "CA1031", Justification = "The settings-save UI boundary must report filesystem and startup-registration errors without terminating the app.")]
     private bool SaveConnectionSettings()
     {
-        if (_service.IsRunning || _busy) { return false; }
+        if (_service.IsRunning || _busy || !_midiReady || _refreshingMidi) { return false; }
         View<TextBlock>("SaveStatus").Text = null;
         try
         {
@@ -377,37 +378,13 @@ public sealed partial class ServerWindow : Window
 #if MACOS
         SetItems(_midiEndpoint, _midiEndpoint.Items.OfType<string>().ToArray(), settings.MidiEndpoint);
 #else
-        if (WindowsMidiBackend.Capabilities.UseMidiServices)
-        {
-            SetItems(_midiEndpoint, _midiEndpoint.Items.OfType<string>().ToArray(), settings.MidiEndpoint);
-        }
-        else
-        {
-            SetItems(_midiInput, _midiInput.Items.OfType<string>().ToArray(), settings.EffectiveMidiInput);
-            SetItems(_midiOutput, _midiOutput.Items.OfType<string>().ToArray(), settings.EffectiveMidiOutput);
-        }
+        SetItems(_midiEndpoint, _midiEndpoint.Items.OfType<string>().ToArray(), settings.MidiEndpoint);
+        SetItems(_midiInput, _midiInput.Items.OfType<string>().ToArray(), settings.EffectiveMidiInput);
+        SetItems(_midiOutput, _midiOutput.Items.OfType<string>().ToArray(), settings.EffectiveMidiOutput);
 #endif
         _listenUrl.Text = UpgradeLegacyListenAddress(settings.ListenUrl);
         _token.Text = settings.Token;
         SetLaunchPreferences(settings.StartWithWindows, settings.AutoListenOnLaunch, settings.StartMinimizedToTray);
-    }
-
-    private void RefreshPorts()
-    {
-#if MACOS
-        string endpoint = GetText(_midiEndpoint);
-        SetItems(_midiEndpoint, PhysicalMidiEndpointCatalog.GetNames(), endpoint);
-#else
-        if (WindowsMidiBackend.Capabilities.UseMidiServices)
-        {
-            SetItems(_midiEndpoint, WindowsMidiBackend.GetEndpointNames(), GetText(_midiEndpoint));
-        }
-        else
-        {
-            SetItems(_midiInput, WinMmPortCatalog.GetInputNames(), GetText(_midiInput));
-            SetItems(_midiOutput, WinMmPortCatalog.GetOutputNames(), GetText(_midiOutput));
-        }
-#endif
     }
 
     private void OnLogMessage(object? sender, string message) => AppendLog(message);
@@ -441,7 +418,7 @@ public sealed partial class ServerWindow : Window
     {
         bool running = _service.IsRunning;
         bool connected = running && _service.ConnectedClient is not null;
-        string? error = _startFailure ?? (running ? _service.LastConnectionError : null);
+        string? error = _startFailure ?? _midiDiscoveryError ?? (running ? _service.LastConnectionError : null);
         _status.Text = error is not null ? "Attention" : connected ? "Connected" : running ? "Listening" : "Stopped";
         Border pill = View<Border>("StatusPill");
         pill.Classes.Set("connected", connected && error is null);
@@ -465,25 +442,26 @@ public sealed partial class ServerWindow : Window
         string endpoint = displayed.MidiEndpoint;
         string subtitle = "Physical MIDI endpoint";
 #else
-        string endpoint = WindowsMidiBackend.Capabilities.UseMidiServices
+        string endpoint = _midiDevices.UseMidiServices
             ? displayed.MidiEndpoint
             : displayed.EffectiveMidiInput.Equals(displayed.EffectiveMidiOutput, StringComparison.OrdinalIgnoreCase)
                 ? displayed.EffectiveMidiInput : $"{displayed.EffectiveMidiInput} / {displayed.EffectiveMidiOutput}".Trim(' ', '/');
-        string subtitle = WindowsMidiBackend.Capabilities.UseMidiServices ? "Physical MIDI endpoint" : "MIDI input + output";
+        string subtitle = _midiDevices.UseMidiServices ? "Physical MIDI endpoint" : "MIDI input + output";
 #endif
         View<TextBlock>("EndpointTitle").Text = string.IsNullOrEmpty(endpoint) ? "Choose an endpoint" : endpoint;
         View<TextBlock>("EndpointSubtitle").Text = subtitle;
         _toggleButton.Content = running ? "Stop server" : "Start server";
-        _toggleButton.IsEnabled = !_busy;
+        _toggleButton.IsEnabled = !_busy && (running || (_midiReady && !_refreshingMidi));
         View<Button>("SettingsConnectionButton").Content = _toggleButton.Content;
-        View<Button>("SettingsConnectionButton").IsEnabled = !_busy;
-        bool editable = !running && !_busy;
+        View<Button>("SettingsConnectionButton").IsEnabled = _toggleButton.IsEnabled;
+        bool editable = !running && !_busy && _midiReady && !_refreshingMidi;
         View<StackPanel>("EndpointFields").IsEnabled = editable;
         View<StackPanel>("LegacyFields").IsEnabled = editable;
-        View<Button>("RefreshEndpointsButton").IsEnabled = editable;
+        View<Button>("RefreshEndpointsButton").IsEnabled = !running && !_busy && !_refreshingMidi;
         _listenUrl.IsEnabled = editable;
         _token.IsEnabled = editable;
         View<Button>("SaveConnectionButton").IsEnabled = editable;
+        _startWithWindows.IsEnabled = _autoListenOnLaunch.IsEnabled = _startMinimizedToTray.IsEnabled = _midiReady && !_refreshingMidi;
         View<TextBlock>("ConnectionEditHelp").Text = running
             ? "Stop the server to edit connection settings."
             : "Choose Save to store your settings, or Start server to save and start listening.";
@@ -535,6 +513,7 @@ public sealed partial class ServerWindow : Window
 
     private void OnClosed(object? sender, EventArgs args)
     {
+        _closed = true;
         _allowClose = true;
         _configuration.Close();
         _activityTimer.Stop();

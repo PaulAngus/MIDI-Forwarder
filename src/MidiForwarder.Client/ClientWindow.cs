@@ -8,8 +8,6 @@ using MidiForwarder.Core;
 using WindowsStartupRegistration = MidiForwarder.Midi.CoreMidi.MacStartupRegistration;
 #else
 using WindowsStartupRegistration = MidiForwarder.Midi.WinMM.WindowsStartupRegistration;
-using MightBeUseful.Midi.Windows;
-using WinMmPortCatalog = MightBeUseful.Midi.Windows.LegacyMidiPortCatalog;
 #endif
 using System.Diagnostics.CodeAnalysis;
 
@@ -53,12 +51,13 @@ public sealed partial class ClientWindow : Window
     }
 
     internal ClientWindow(ClientRelayService service, Func<ClientSettings?> loadSettings, Action<ClientSettings> saveSettings,
-        Action<bool>? setStartupRegistration = null)
+        Action<bool>? setStartupRegistration = null, MidiDeviceDiscovery? midiDiscovery = null)
     {
         _service = service;
         _loadSettings = loadSettings;
         _saveSettings = saveSettings;
         _setStartupRegistration = setStartupRegistration ?? (enabled => WindowsStartupRegistration.SetEnabled(StartupName, enabled));
+        _midiDiscovery = midiDiscovery ?? new MidiDeviceDiscovery(DiscoverMidiDevices);
         AvaloniaXamlLoader.Load(this);
         _configuration = new ClientSettingsWindow();
         _interfaceName = View<TextBox>("InterfaceName");
@@ -130,16 +129,10 @@ public sealed partial class ClientWindow : Window
         _startMinimizedToTray.IsCheckedChanged += (_, _) => SaveLaunchPreferences();
         _startWithWindows.IsCheckedChanged += (_, _) => SaveLaunchPreferences();
 #if !MACOS
-        bool modern = WindowsMidiBackend.Capabilities.CanCreateVirtualPorts;
-        View<StackPanel>("InterfaceFields").IsVisible = modern;
-        View<StackPanel>("LegacyFields").IsVisible = !modern;
-        View<Button>("RefreshPortsButton").IsVisible = !modern;
-        View<Button>("RefreshPortsButton").Click += (_, _) => RefreshPorts();
-        _midiHelp.Text = modern
-            ? "Select the virtual interface below for input and output in your MIDI app."
-            : "Create two virtual cables in loopMIDI (or another virtual MIDI driver). Choose the cable your MIDI app sends to as ‘From MIDI app’, and the cable your MIDI app receives from as ‘To MIDI app’. Keep the virtual cable software running. Use different cables to avoid feedback.";
-        View<TextBlock>("BackendDescription").Text = WindowsMidiBackend.Capabilities.Description;
-        RefreshPorts();
+        View<StackPanel>("InterfaceFields").IsVisible = false;
+        View<StackPanel>("LegacyFields").IsVisible = false;
+        View<Button>("RefreshPortsButton").Click += async (_, _) => await RefreshMidiDevicesAsync().ConfigureAwait(true);
+        View<TextBlock>("BackendDescription").Text = _midiDevices.Description;
 #endif
 #if MACOS
         View<TextBlock>("StartWithSystemLabel").Text = "Start at login";
@@ -154,6 +147,7 @@ public sealed partial class ClientWindow : Window
         UpdateMidiBackend();
 #endif
         RefreshPresentation();
+        _initialMidiDiscovery = RefreshMidiDevicesAsync();
     }
 
     public event EventHandler? QuitRequested;
@@ -169,6 +163,7 @@ public sealed partial class ClientWindow : Window
             if (settings is null)
             {
                 ShowConfiguration();
+                await _initialMidiDiscovery.ConfigureAwait(true);
                 return;
             }
 
@@ -176,14 +171,16 @@ public sealed partial class ClientWindow : Window
             _savedSettings = settings;
             ApplySettings(settings);
             RefreshPresentation();
-            if (settings.AutoConnectOnLaunch)
-            {
-                await StartAsync(settings).ConfigureAwait(true);
-            }
-
             if (!settings.StartMinimizedToTray)
             {
                 ShowMainWindow();
+            }
+            await _initialMidiDiscovery.ConfigureAwait(true);
+            if (_closed) { return; }
+            if (!_midiReady) { ShowConfiguration(); return; }
+            if (settings.AutoConnectOnLaunch)
+            {
+                await StartAsync(settings).ConfigureAwait(true);
             }
         }
         catch (Exception error)
@@ -238,6 +235,7 @@ public sealed partial class ClientWindow : Window
 
     public void AllowClose()
     {
+        _closed = true;
         _allowClose = true;
         _configuration.IsEnabled = false;
         _configuration.Close();
@@ -246,7 +244,7 @@ public sealed partial class ClientWindow : Window
     [SuppressMessage("Design", "CA1031", Justification = "Connection buttons must report device cleanup failures instead of terminating the desktop app.")]
     private async Task ToggleConnectionAsync()
     {
-        if (_busy)
+        if (_busy || (!_service.IsRunning && (!_midiReady || _refreshingMidi)))
         {
             return;
         }
@@ -284,7 +282,7 @@ public sealed partial class ClientWindow : Window
     [SuppressMessage("Design", "CA1031", Justification = "The settings-save UI boundary must report filesystem and startup-registration errors without terminating the app.")]
     private bool SaveConnectionSettings()
     {
-        if (_service.IsRunning || _busy) { return false; }
+        if (_service.IsRunning || _busy || !_midiReady || _refreshingMidi) { return false; }
         View<TextBlock>("SaveStatus").Text = null;
         try
         {
@@ -423,12 +421,6 @@ public sealed partial class ClientWindow : Window
     }
 
 #if !MACOS
-    private void RefreshPorts()
-    {
-        SetPorts(_midiInput, WinMmPortCatalog.GetInputNames(), _midiInput.SelectedItem as string ?? string.Empty);
-        SetPorts(_midiOutput, WinMmPortCatalog.GetOutputNames(), _midiOutput.SelectedItem as string ?? string.Empty);
-    }
-
     private static void SetPorts(ComboBox box, IReadOnlyList<string> ports, string selected)
     {
         // Never silently substitute a different cable for a saved, disconnected port.
@@ -500,8 +492,8 @@ public sealed partial class ClientWindow : Window
     {
         bool running = _service.IsRunning;
         bool connected = running && _service.IsConnected;
-        string? error = _startFailure ?? (running ? _service.LastConnectionError : null);
-        _status.Text = _startFailure is not null ? "Attention" : connected ? "Connected" : !running ? "Disconnected"
+        string? error = _startFailure ?? _midiDiscoveryError ?? (running ? _service.LastConnectionError : null);
+        _status.Text = _startFailure is not null || _midiDiscoveryError is not null ? "Attention" : connected ? "Connected" : !running ? "Disconnected"
             : _service.ConnectionStatus.StartsWith("Reconnecting", StringComparison.Ordinal) ? "Reconnecting"
             : _service.ConnectionStatus == "Waiting for Apple MIDI" ? "Waiting for MIDI" : "Connecting";
         Border pill = View<Border>("StatusPill");
@@ -524,7 +516,7 @@ public sealed partial class ClientWindow : Window
         string endpoint = native ? displayed.NetworkMidiEndpoint : displayed.InterfaceName;
         string subtitle = native ? "Apple network MIDI" : "Virtual MIDI interface";
 #else
-        bool modern = WindowsMidiBackend.Capabilities.CanCreateVirtualPorts;
+        bool modern = _midiDevices.CanCreateVirtualPorts;
         string endpoint = modern ? displayed.InterfaceName
             : $"{displayed.MidiInput} / {displayed.MidiOutput}".Trim(' ', '/');
         string subtitle = modern ? "Virtual MIDI interface" : "MIDI app input + output cables";
@@ -532,16 +524,18 @@ public sealed partial class ClientWindow : Window
         View<TextBlock>("EndpointTitle").Text = string.IsNullOrEmpty(endpoint) ? "Choose a MIDI interface" : endpoint;
         View<TextBlock>("EndpointSubtitle").Text = subtitle;
         _toggleButton.Content = running ? "Disconnect" : "Connect";
-        _toggleButton.IsEnabled = !_busy;
+        _toggleButton.IsEnabled = !_busy && (running || (_midiReady && !_refreshingMidi));
         View<Button>("SettingsConnectionButton").Content = _toggleButton.Content;
-        View<Button>("SettingsConnectionButton").IsEnabled = !_busy;
-        bool editable = !running && !_busy;
+        View<Button>("SettingsConnectionButton").IsEnabled = _toggleButton.IsEnabled;
+        bool editable = !running && !_busy && _midiReady && !_refreshingMidi;
         foreach (Control field in new Control[] { _interfaceName, _serverUri, _token, _midiInput, _midiOutput,
                      _midiBackend, _networkMidiEndpoint, _networkMidiPort, View<Button>("RefreshPortsButton") })
         {
             field.IsEnabled = editable;
         }
         View<Button>("SaveConnectionButton").IsEnabled = editable;
+        View<Button>("RefreshPortsButton").IsEnabled = !running && !_busy && !_refreshingMidi;
+        _startWithWindows.IsEnabled = _autoConnectOnLaunch.IsEnabled = _startMinimizedToTray.IsEnabled = _midiReady && !_refreshingMidi;
         View<TextBlock>("ConnectionEditHelp").Text = running
             ? "Disconnect to edit connection settings."
             : "Choose Save to store your settings, or Connect to save and connect.";
@@ -593,6 +587,7 @@ public sealed partial class ClientWindow : Window
 
     private void OnClosed(object? sender, EventArgs args)
     {
+        _closed = true;
         _allowClose = true;
         _configuration.Close();
         _activityTimer.Stop();
