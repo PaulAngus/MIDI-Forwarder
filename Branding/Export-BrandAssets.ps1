@@ -8,9 +8,10 @@ $taskAppAssets = Join-Path $PSScriptRoot '../assets'
 $taskWebsiteAssets = Join-Path $PSScriptRoot 'Website'
 New-Item -ItemType Directory -Path $taskAppAssets, $taskWebsiteAssets -Force | Out-Null
 
-# Format/size exports only: preserve the chosen artwork and its transparent alpha.
+# Preserve the artwork and alpha; trim its canvas padding consistently in every export.
 $taskSource = [System.Drawing.Bitmap]::new($taskSourcePath)
 try {
+    $taskSourceRectangle = & (Join-Path $PSScriptRoot 'Get-LogoSourceRectangle.ps1') -Bitmap $taskSource
     $taskFrames = @()
     foreach ($taskSize in @(16, 20, 24, 32, 40, 48, 64, 96, 128, 256, 512)) {
         $taskBitmap = [System.Drawing.Bitmap]::new($taskSize, $taskSize, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
@@ -24,7 +25,7 @@ try {
             $taskAttributes = [System.Drawing.Imaging.ImageAttributes]::new()
             try {
                 $taskAttributes.SetWrapMode([System.Drawing.Drawing2D.WrapMode]::TileFlipXY)
-                $taskGraphics.DrawImage($taskSource, [System.Drawing.Rectangle]::new(0, 0, $taskSize, $taskSize), 0, 0, $taskSource.Width, $taskSource.Height, [System.Drawing.GraphicsUnit]::Pixel, $taskAttributes)
+                $taskGraphics.DrawImage($taskSource, [System.Drawing.Rectangle]::new(0, 0, $taskSize, $taskSize), $taskSourceRectangle.X, $taskSourceRectangle.Y, $taskSourceRectangle.Width, $taskSourceRectangle.Height, [System.Drawing.GraphicsUnit]::Pixel, $taskAttributes)
             } finally { $taskAttributes.Dispose() }
             $taskBitmap.Save($taskStream, [System.Drawing.Imaging.ImageFormat]::Png)
             $taskBytes = $taskStream.ToArray()

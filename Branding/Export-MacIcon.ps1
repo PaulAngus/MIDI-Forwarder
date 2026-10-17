@@ -13,6 +13,7 @@ function Write-BigEndianUInt32([System.IO.BinaryWriter]$Writer, [uint32]$Value) 
     $Writer.Write([byte[]]$taskBytes)
 }
 try {
+    $taskSourceRectangle = & (Join-Path $PSScriptRoot 'Get-LogoSourceRectangle.ps1') -Bitmap $taskSource
     $taskFrames = @()
     foreach ($taskEntry in @(@('icp4',16),@('icp5',32),@('icp6',64),@('ic07',128),@('ic08',256),@('ic09',512),@('ic10',1024))) {
         $taskSize = [int]$taskEntry[1]
@@ -23,7 +24,7 @@ try {
             $taskGraphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
             $taskGraphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
             $taskGraphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-            $taskGraphics.DrawImage($taskSource, [System.Drawing.Rectangle]::new(0,0,$taskSize,$taskSize))
+            $taskGraphics.DrawImage($taskSource, [System.Drawing.Rectangle]::new(0,0,$taskSize,$taskSize), $taskSourceRectangle.X, $taskSourceRectangle.Y, $taskSourceRectangle.Width, $taskSourceRectangle.Height, [System.Drawing.GraphicsUnit]::Pixel)
             $taskBitmap.Save($taskFrameStream, [System.Drawing.Imaging.ImageFormat]::Png)
             $taskFrames += [pscustomobject]@{ Type = $taskEntry[0]; Bytes = $taskFrameStream.ToArray() }
         } finally { $taskFrameStream.Dispose(); $taskGraphics.Dispose(); $taskBitmap.Dispose() }
