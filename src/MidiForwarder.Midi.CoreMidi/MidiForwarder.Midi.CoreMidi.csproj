@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../MidiForwarder.Core/MidiForwarder.Core.csproj" />
-    <PackageReference Include="MightBeUseful.Midi.CoreMidi" Version="$(SharedMidiVersion)" Condition="'$(SharedMidiSourceRoot)' == ''" />
+    <PackageReference Include="MightBeUseful.Midi.CoreMidi" Version="$(SharedMidiPackageVersion)" Condition="'$(SharedMidiSourceRoot)' == ''" />
+    <PackageReference Include="MightBeUseful.Midi.Rtp" Version="$(SharedMidiPackageVersion)" Condition="'$(SharedMidiSourceRoot)' == ''" />
     <ProjectReference Include="$(SharedMidiSourceRoot)/src/MightBeUseful.Midi.CoreMidi/MightBeUseful.Midi.CoreMidi.csproj" Condition="'$(SharedMidiSourceRoot)' != ''" />
   </ItemGroup>
 </Project>

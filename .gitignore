@@ -15,3 +15,6 @@ Directory.Build.targets
 !dependencies/midi/*.nupkg
 
 TestResults/
+
+# Repository-local NuGet cache.
+.build/

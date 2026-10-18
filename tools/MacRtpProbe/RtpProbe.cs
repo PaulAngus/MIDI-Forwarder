@@ -6,6 +6,7 @@ using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.Multimedia;
 using MidiForwarder.Core;
 using MightBeUseful.Midi.CoreMidi;
+using MightBeUseful.Midi.Rtp;
 
 static class RtpProbe
 {
@@ -53,7 +54,7 @@ static class RtpProbe
 
     public static async Task RunAsync(bool live, bool largeOnly, string endpointName, string? fixturePath)
     {
-        await using var peer = new RtpMidiPeer();
+        await using var peer = new RtpMidiDiagnosticPeer(log: Console.WriteLine);
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(10));
         Console.WriteLine("Connect Apple session to directory entry 127.0.0.1:55006, then test begins.");
         await peer.Connected.WaitAsync(deadline.Token);
