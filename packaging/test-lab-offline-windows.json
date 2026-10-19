@@ -1,0 +1,48 @@
+{
+  "applicationId": "midi-forwarder",
+  "applicationName": "MIDI Forwarder",
+  "testProfile": "offline-windows-no-midi",
+  "runner": {
+    "project": "tools/MidiForwarder.Lab/MidiForwarder.Lab.csproj",
+    "destination": "bin/lab",
+    "executable": "bin/lab/MidiForwarder.Lab"
+  },
+  "platforms": {
+    "win": {
+      "properties": [
+        "-p:TestLabProfile=OfflineWindows"
+      ],
+      "tests": [
+        {
+          "project": "tools/MidiForwarder.LabTests/MidiForwarder.LabTests.csproj",
+          "destination": "bin/tests"
+        }
+      ]
+    }
+  },
+  "offlinePolicy": {
+    "includedTestSources": [
+      "tests/MidiForwarder.Core.Tests/Midi1CompatiblePortTests.cs",
+      "tests/MidiForwarder.Core.Tests/Midi1ShortMessageCodecTests.cs",
+      "tests/MidiForwarder.Core.Tests/MidiDeviceDiscoveryTests.cs",
+      "tests/MidiForwarder.Core.Tests/MidiFrameTests.cs",
+      "tests/MidiForwarder.Core.Tests/MidiTrafficMonitorTests.cs",
+      "tests/MidiForwarder.Core.Tests/UmpMidi1CodecTests.cs",
+      "tests/MidiForwarder.Core.Tests/WindowsMidiBackendTests.cs",
+      "tests/MidiForwarder.Core.Tests/WindowsUmpReceiveQueueTests.cs",
+      "tests/MidiForwarder.Core.Tests/WinMmSysExAssemblerTests.cs",
+      "tests/MidiForwarder.CoreMidi.Tests/CoreMidiTransferLimitsTests.cs",
+      "tests/MidiForwarder.CoreMidi.Tests/Midi1PacketDecoderTests.cs",
+      "tests/MidiForwarder.CoreMidi.Tests/RtpMidiCodecTests.cs"
+    ],
+    "excludedWorkflows": [
+      "TCP MIDI bridge sessions",
+      "Client/Server connection, startup, tray and UI suites (some use real MIDI discovery or TCP MIDI)",
+      "CoreMIDI native/virtual port tests"
+    ],
+    "midiAccess": "none",
+    "hardwareQualification": false,
+    "allScope": "Only the audited offline Functional stages; Native/Desktop explicitly unavailable."
+  },
+  "agentVersion": "0.2.5"
+}

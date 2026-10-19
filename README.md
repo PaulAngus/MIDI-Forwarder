@@ -1,5 +1,7 @@
 # MIDI Forwarder
 
+Current source release: [1.0.1](docs/releases/1.0.1.md).
+
 Shared MIDI implementation: see [dependency and setup notes](dependencies/midi/README.md). Current and legacy backends come from the `MightBeUseful.Midi` packages maintained in [MIDIHelperLibrary](https://github.com/PaulAngus/MIDIHelperLibrary); earlier implementation/package details below describe the pre-migration builds.
 
 For loopMIDI on older Windows, see the [setup instructions](#loopmidi-setup-on-older-windows).
@@ -504,3 +506,22 @@ server/client status logs before changing the token or port assignment.
 See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the dependency and
 license summary. The Windows MIDI Services package is a preview dependency;
 its distribution terms should be checked independently before redistribution.
+
+## Application Test Lab
+
+Portable dashboard integration and build instructions: [Test Lab adapter](docs/test-lab.md).
+
+## Offline Windows Test Lab profile
+
+Build an audited bundle without MIDI access:
+
+```text
+python packaging/build_test_lab.py --rid win-x64 --config packaging/test-lab-offline-windows.json --output artifacts/offline-windows
+```
+
+Every bundle uses fresh build outputs and records its selected test-source hashes in
+`offline-policy.json`. All covers only the profile's offline Functional stages.
+Native and interactive Desktop requests report unavailable; no hardware or MIDI
+routing qualification is implied. No native, virtual, TCP or UDP MIDI connections
+are opened or created. In-memory logic fixtures remain included. The normal
+development profile and its broader transport tests remain separate.

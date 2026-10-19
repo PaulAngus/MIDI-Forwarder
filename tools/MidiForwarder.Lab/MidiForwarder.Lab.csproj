@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><IsPackable>false</IsPackable></PropertyGroup>
+  <ItemGroup><Using Remove="MightBeUseful.Midi" /></ItemGroup>
+  <ItemGroup Condition="'$(TestLabAgentProject)' == '' and '$(TestLabProfile)' != 'OfflineWindows'"><PackageReference Include="ApplicationTestLab.Agent" Version="[0.2.5]" /></ItemGroup>
+  <ItemGroup Condition="'$(TestLabAgentProject)' == '' and '$(TestLabProfile)' == 'OfflineWindows'"><PackageReference Include="ApplicationTestLab.Agent" Version="[0.2.5]" /></ItemGroup>
+  <ItemGroup Condition="'$(TestLabAgentProject)' != ''"><ProjectReference Include="$(TestLabAgentProject)" /></ItemGroup>
+  <ItemGroup Condition="('$(TestLabProfile)' == 'OfflineWindows' or '$(TestLabProfile)' == 'PhysicalWindowsReadOnly')"><Compile Remove="Program.cs" /></ItemGroup>
+  <ItemGroup Condition="'$(TestLabProfile)' != 'OfflineWindows'"><Compile Remove="OfflineProgram.cs" /></ItemGroup>
+  <ItemGroup Condition="'$(TestLabProfile)' != 'PhysicalWindowsReadOnly'"><Compile Remove="PhysicalProgram.cs" /></ItemGroup>
+</Project>

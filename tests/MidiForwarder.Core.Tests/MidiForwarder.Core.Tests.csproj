@@ -19,4 +19,16 @@
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
+  <PropertyGroup Condition="('$(TestLabProfile)' == 'OfflineWindows' or '$(TestLabProfile)' == 'PhysicalWindowsReadOnly')"><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup>
+  <ItemGroup Condition="('$(TestLabProfile)' == 'OfflineWindows' or '$(TestLabProfile)' == 'PhysicalWindowsReadOnly')">
+    <Compile Include="Midi1CompatiblePortTests.cs" />
+    <Compile Include="Midi1ShortMessageCodecTests.cs" />
+    <Compile Include="MidiDeviceDiscoveryTests.cs" />
+    <Compile Include="MidiFrameTests.cs" />
+    <Compile Include="MidiTrafficMonitorTests.cs" />
+    <Compile Include="UmpMidi1CodecTests.cs" />
+    <Compile Include="WindowsMidiBackendTests.cs" />
+    <Compile Include="WindowsUmpReceiveQueueTests.cs" />
+    <Compile Include="WinMmSysExAssemblerTests.cs" />
+  </ItemGroup>
 </Project>

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <OutputType>Exe</OutputType><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild><EnableNETAnalyzers>false</EnableNETAnalyzers>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/MidiForwarder.Midi.WindowsServices/MidiForwarder.Midi.WindowsServices.csproj" />
+    <Compile Include="../../dependencies/test-lab/Fm9ReadOnly.cs" Link="Fm9ReadOnly.cs" />
+    <Compile Include="../../dependencies/test-lab/Fm9SharedTransport.cs" Link="Fm9SharedTransport.cs" />
+    <PackageReference Include="Windows.Devices.Midi2" Version="0.99.88-preview.10" GeneratePathProperty="true" ExcludeAssets="all" />
+    <Content Include="$(PkgWindows_Devices_Midi2)/runtimes/win-x64/native/Windows.Devices.Midi2.dll" Link="midi-api/Windows.Devices.Midi2.dll" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(PkgWindows_Devices_Midi2)/runtimes/win-x64/native/Windows.Devices.Midi2.pri" Link="midi-api/Windows.Devices.Midi2.pri" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

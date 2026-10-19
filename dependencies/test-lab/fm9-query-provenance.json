@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "version": "1.0.0",
+  "scope": "Test-only fixed query vectors; no production protocol implementation",
+  "source": "Fractal-AI-Toolkit/src/Fractal.Core/SysexProtocol.cs",
+  "sha256": "84BFA0FA85572F9292C939131DBCB27483A33AE2E7D581F0DE7F4652C3C8D1AE",
+  "evidence": "Fractal-AI-Toolkit/skills/fractal-fm9/references/fm9-protocol.md",
+  "requests": [
+    "F00001747F007AF7",
+    "F000017412081FF7",
+    "F0000174120D7F7F1AF7",
+    "F0000174120C7F64F7"
+  ],
+  "model": "FM9",
+  "firmwareScope": "Established by each live run, not inferred from port names or historical results."
+}

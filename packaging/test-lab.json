@@ -1,0 +1,28 @@
+{
+  "applicationId": "midi-forwarder",
+  "applicationName": "MIDI Forwarder",
+  "runner": {
+    "project": "tools/MidiForwarder.Lab/MidiForwarder.Lab.csproj",
+    "destination": "bin/lab",
+    "executable": "bin/lab/MidiForwarder.Lab"
+  },
+  "platforms": {
+    "win": {
+      "tests": [
+        {
+          "project": "tools/MidiForwarder.LabTests/MidiForwarder.LabTests.csproj",
+          "destination": "bin/tests"
+        }
+      ]
+    },
+    "osx": {
+      "tests": [
+        {
+          "project": "tools/MidiForwarder.LabTests/MidiForwarder.LabTests.csproj",
+          "destination": "bin/tests"
+        }
+      ]
+    }
+  },
+  "agentVersion": "0.2.5"
+}

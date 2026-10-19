@@ -1,0 +1,72 @@
+{
+  "applicationId": "midi-forwarder",
+  "applicationName": "MIDI Forwarder",
+  "testProfile": "physical-windows-fm9-read-only",
+  "runner": {
+    "project": "tools/MidiForwarder.Lab/MidiForwarder.Lab.csproj",
+    "destination": "bin/lab",
+    "executable": "bin/lab/MidiForwarder.Lab"
+  },
+  "platforms": {
+    "win": {
+      "properties": [
+        "-p:TestLabProfile=PhysicalWindowsReadOnly"
+      ],
+      "tests": [
+        {
+          "project": "tools/MidiForwarder.LabTests/MidiForwarder.LabTests.csproj",
+          "destination": "bin/tests"
+        },
+        {
+          "project": "tools/MidiForwarder.Fm9Checks/MidiForwarder.Fm9Checks.csproj",
+          "destination": "bin/hardware"
+        }
+      ]
+    }
+  },
+  "offlinePolicy": {
+    "includedTestSources": [
+      "tests/MidiForwarder.Core.Tests/Midi1CompatiblePortTests.cs",
+      "tests/MidiForwarder.Core.Tests/Midi1ShortMessageCodecTests.cs",
+      "tests/MidiForwarder.Core.Tests/MidiDeviceDiscoveryTests.cs",
+      "tests/MidiForwarder.Core.Tests/MidiFrameTests.cs",
+      "tests/MidiForwarder.Core.Tests/MidiTrafficMonitorTests.cs",
+      "tests/MidiForwarder.Core.Tests/UmpMidi1CodecTests.cs",
+      "tests/MidiForwarder.Core.Tests/WindowsMidiBackendTests.cs",
+      "tests/MidiForwarder.Core.Tests/WindowsUmpReceiveQueueTests.cs",
+      "tests/MidiForwarder.Core.Tests/WinMmSysExAssemblerTests.cs",
+      "tests/MidiForwarder.CoreMidi.Tests/CoreMidiTransferLimitsTests.cs",
+      "tests/MidiForwarder.CoreMidi.Tests/Midi1PacketDecoderTests.cs",
+      "tests/MidiForwarder.CoreMidi.Tests/RtpMidiCodecTests.cs"
+    ],
+    "excludedWorkflows": [
+      "TCP MIDI bridge sessions",
+      "Client/Server connection, startup, tray and UI suites (some use real MIDI discovery or TCP MIDI)",
+      "CoreMIDI native/virtual port tests"
+    ],
+    "midiAccess": "none",
+    "hardwareQualification": false,
+    "allScope": "Functional stages only; separate read-only FM9 Native stage in hardware-policy.json."
+  },
+  "hardwarePolicy": {
+    "midiAccess": "four-exact-fm9-read-queries",
+    "includedSources": [
+      "tools/MidiForwarder.Fm9Checks/Program.cs",
+      "tools/MidiForwarder.Fm9Checks/MidiForwarder.Fm9Checks.csproj",
+      "tools/MidiForwarder.Lab/PhysicalProgram.cs",
+      "dependencies/test-lab/Fm9ReadOnly.cs",
+      "dependencies/test-lab/Fm9SharedTransport.cs",
+      "packaging/fm9-read-only.json",
+      "dependencies/test-lab/fm9-query-provenance.json"
+    ],
+    "virtualPortsAllowed": false,
+    "networkMidiAllowed": false,
+    "desktopCoverage": false,
+    "scope": "Production transport interoperability, read-only FM9 identity/firmware/current state; no sending/routing qualification."
+  },
+  "staticFiles": {
+    "packaging/fm9-read-only.json": "fm9-read-only.json",
+    "dependencies/test-lab/fm9-query-provenance.json": "fm9-query-provenance.json"
+  },
+  "agentVersion": "0.2.5"
+}

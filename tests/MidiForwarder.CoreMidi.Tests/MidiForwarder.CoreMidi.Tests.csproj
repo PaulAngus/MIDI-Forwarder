@@ -9,4 +9,10 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" PrivateAssets="all" />
     <Using Include="Xunit" />
   </ItemGroup>
+  <PropertyGroup Condition="('$(TestLabProfile)' == 'OfflineWindows' or '$(TestLabProfile)' == 'PhysicalWindowsReadOnly')"><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup>
+  <ItemGroup Condition="('$(TestLabProfile)' == 'OfflineWindows' or '$(TestLabProfile)' == 'PhysicalWindowsReadOnly')">
+    <Compile Include="CoreMidiTransferLimitsTests.cs" />
+    <Compile Include="Midi1PacketDecoderTests.cs" />
+    <Compile Include="RtpMidiCodecTests.cs" />
+  </ItemGroup>
 </Project>
