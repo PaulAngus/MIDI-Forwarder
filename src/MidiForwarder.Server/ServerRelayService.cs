@@ -257,8 +257,8 @@ public sealed class ServerRelayService : IAsyncDisposable
 #else
         WindowsMidiBackend.Capabilities.UseMidiServices
             ? WindowsMidiBackend.GetEndpointNames().Contains(settings.MidiEndpoint, StringComparer.OrdinalIgnoreCase)
-            : WinMmPortCatalog.GetInputNames().Contains(settings.EffectiveMidiInput, StringComparer.OrdinalIgnoreCase)
-                && WinMmPortCatalog.GetOutputNames().Contains(settings.EffectiveMidiOutput, StringComparer.OrdinalIgnoreCase);
+            : LegacyMidiPortCatalog.GetInputNames().Contains(settings.EffectiveMidiInput, StringComparer.OrdinalIgnoreCase)
+                && LegacyMidiPortCatalog.GetOutputNames().Contains(settings.EffectiveMidiOutput, StringComparer.OrdinalIgnoreCase);
 #endif
 
     private void WriteLog(string message) => LogMessage?.Invoke(this, message);

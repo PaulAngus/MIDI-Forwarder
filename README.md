@@ -1,6 +1,6 @@
 # MIDI Forwarder
 
-Current source release: [1.0.1](docs/releases/1.0.1.md).
+Current source release: [1.0.2](docs/releases/1.0.2.md).
 
 Shared MIDI implementation: see [dependency and setup notes](dependencies/midi/README.md). Current and legacy backends come from the `MightBeUseful.Midi` packages maintained in [MIDIHelperLibrary](https://github.com/PaulAngus/MIDIHelperLibrary); earlier implementation/package details below describe the pre-migration builds.
 
