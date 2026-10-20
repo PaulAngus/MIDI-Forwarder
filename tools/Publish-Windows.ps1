@@ -23,5 +23,9 @@ foreach ($role in @('Client', 'Server')) {
     dotnet publish $project -c Release -r win-x64 --self-contained true --artifacts-path $build -o $output
     if ($LASTEXITCODE -ne 0) { throw "$role publish failed ($LASTEXITCODE)." }
     & $signScript @signing -ExecutablePath (Join-Path $output "MidiForwarder.$role.exe")
+    & (Join-Path $repoRoot 'dependencies/midi/New-WindowsReleaseArchive.ps1') `
+        -ExecutablePath (Join-Path $output "MidiForwarder.$role.exe") -Name "MIDI-Forwarder-$role" -OutputDirectory $output `
+        -NoticePath @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'dependencies/midi') -File |
+            Where-Object Name -Match 'LICENSE|NOTICES' | ForEach-Object FullName)
     Write-Output (Join-Path $output "MidiForwarder.$role.exe")
 }

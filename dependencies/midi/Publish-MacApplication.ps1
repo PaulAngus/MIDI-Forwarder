@@ -116,7 +116,7 @@ foreach ($directory in Get-ChildItem -LiteralPath $binary -Directory) {
 }
 Checked '/usr/bin/codesign' (@('--force','--sign',$SigningIdentity,'--entitlements',$entitlements,$app) + $signOptions)
 Checked '/usr/bin/codesign' @('--verify','--deep','--strict',$app)
-$archive = Join-Path $release ($Name.Replace(' ','-') + '.zip')
+$archive = Join-Path $release ($Name.Replace(' ','-') + "-$Version-osx-$Architecture.zip")
 Checked '/usr/bin/ditto' @('-c','-k','--keepParent',$app,$archive)
 if ($NotaryProfile) {
     Checked '/usr/bin/xcrun' @('notarytool','submit',$archive,'--keychain-profile',$NotaryProfile,'--wait')
@@ -125,6 +125,7 @@ if ($NotaryProfile) {
     Checked '/usr/sbin/spctl' @('--assess','--type','execute',$app)
     Checked '/usr/bin/ditto' @('-c','-k','--keepParent',$app,$archive)
 }
-(Get-FileHash -LiteralPath $archive).Hash | Set-Content ($archive + '.sha256')
+$hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+"$hash  $([IO.Path]::GetFileName($archive))" | Set-Content -LiteralPath ($archive + '.sha256') -Encoding utf8NoBOM
 Write-Output $archive
 if ($SigningIdentity -eq '-') { Write-Warning 'Ad hoc lab build; public distribution still requires Developer ID signing and notarization.' }
