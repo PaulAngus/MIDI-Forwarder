@@ -11,6 +11,16 @@ internal static class Program
     {
         try
         {
+            BundledWindowsMidiApi.Prepare();
+            if (args.Contains("--dependency-report", StringComparer.Ordinal))
+            {
+                return WindowsMidiDependencyReport.Write(Console.Out);
+            }
+            if (args.Contains("--midi-api-directory", StringComparer.OrdinalIgnoreCase))
+            {
+                Console.WriteLine(WindowsMidiBackend.ApiDirectory);
+                return 0;
+            }
             DiagnosticLog.Write("server.log", $"Process starting. Version={typeof(Program).Assembly.GetName().Version}; PID={Environment.ProcessId}");
             if (args.Contains("--midi-backend", StringComparer.OrdinalIgnoreCase))
             {

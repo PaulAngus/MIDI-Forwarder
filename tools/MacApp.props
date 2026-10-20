@@ -4,11 +4,12 @@
     <OutputType>Exe</OutputType>
     <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
-    <PublishSingleFile>true</PublishSingleFile>
+    <!-- Keep every native component visible to signing and dependency inspection. -->
+    <PublishSingleFile>false</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
     <IncludeAllContentForSelfExtract>false</IncludeAllContentForSelfExtract>
     <PublishReadyToRun>false</PublishReadyToRun>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
     <EnableMacOSCodeSign>false</EnableMacOSCodeSign>
     <DefineConstants>$(DefineConstants);MACOS</DefineConstants>
   </PropertyGroup>
@@ -21,13 +22,4 @@
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3" />
     <Compile Include="../../tools/MacProgram.cs" Link="Program.cs" />
   </ItemGroup>
-  <Target Name="CopyMacNativeLibraries" AfterTargets="Publish">
-    <ItemGroup>
-      <MacNativeLibrary Include="$([System.IO.Path]::Combine('$(NuGetPackageRoot)', 'avalonia.native/11.2.3/runtimes/osx/native/libAvaloniaNative.dylib'))" />
-      <MacNativeLibrary Include="$([System.IO.Path]::Combine('$(NuGetPackageRoot)', 'harfbuzzsharp.nativeassets.macos/7.3.0.3/runtimes/osx/native/libHarfBuzzSharp.dylib'))" />
-      <MacNativeLibrary Include="$([System.IO.Path]::Combine('$(NuGetPackageRoot)', 'skiasharp.nativeassets.macos/2.88.9/runtimes/osx/native/libSkiaSharp.dylib'))" />
-    </ItemGroup>
-    <!-- Keep sidecars present even when an incremental single-file publish skips copying runtime assets. -->
-    <Copy SourceFiles="@(MacNativeLibrary)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
-  </Target>
 </Project>

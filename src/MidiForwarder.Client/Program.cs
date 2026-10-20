@@ -11,6 +11,16 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        BundledWindowsMidiApi.Prepare();
+        if (args.Contains("--dependency-report", StringComparer.Ordinal))
+        {
+            return WindowsMidiDependencyReport.Write(Console.Out);
+        }
+        if (args.Contains("--midi-api-directory", StringComparer.OrdinalIgnoreCase))
+        {
+            Console.WriteLine(WindowsMidiBackend.ApiDirectory);
+            return 0;
+        }
         if (args.Contains("--list-ports", StringComparer.OrdinalIgnoreCase))
         {
             WindowsMidiBackend.Print(Console.Out);

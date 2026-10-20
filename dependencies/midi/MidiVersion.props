@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <SharedMidiVersion>0.3.6</SharedMidiVersion>
+    <SharedMidiVersion>0.3.10</SharedMidiVersion>
     <SharedMidiPackageVersion>[$(SharedMidiVersion)]</SharedMidiPackageVersion>
   </PropertyGroup>
 </Project>

@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../../tools/BundledWindowsMidiApi.props" />
   <PropertyGroup>
     <!-- XAML is loaded into the window constructed with its relay service. -->
     <NoWarn>$(NoWarn);AVLN3001</NoWarn>

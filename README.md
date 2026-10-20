@@ -2,8 +2,7 @@
 
 Current source release: [1.0.2](docs/releases/1.0.2.md).
 
-Supported platforms: **Windows 11 (x64)** and **macOS 15 or later (Apple Silicon)**.
-Windows 10 is no longer supported by MIDI Forwarder.
+Supported platforms: **Windows 10 and Windows 11 (x64)** and **macOS 26 and 27 (Apple Silicon)**. Virtual MIDI presentation is not supported on Windows 10.
 
 Shared MIDI implementation: see [dependency and setup notes](dependencies/midi/README.md). Current and legacy backends come from the `MightBeUseful.Midi` packages maintained in [MIDIHelperLibrary](https://github.com/PaulAngus/MIDIHelperLibrary); earlier implementation/package details below describe the pre-migration builds.
 
@@ -46,21 +45,24 @@ The macOS client uses a local RTP-MIDI connection to Apple's network MIDI driver
 
 For published binaries:
 
-- **Windows 11, x64.** Automatic Client ports require Windows 11 25H2
-  (build 26200) or later with compatible Windows MIDI Services, its loopback
-  transport and the separately configured optional native MIDI API. The tagged
-  1.0.2 build does not embed that optional API; see the
-  [dependency and setup notes](dependencies/midi/README.md).
-- **macOS 15 or later, Apple Silicon (arm64).** The Client's recommended workflow
+- **Windows 10 and Windows 11, x64.** Automatic Client ports require Windows 11 25H2
+  (build 26200) or later with compatible Windows MIDI Services and its loopback
+  transport. Windows binaries from **1.0.4** embed the required MIDI API DLL and
+  resources inside each EXE and prepare their private copy automatically. Copying
+  the EXE is sufficient; no separate API installer or DLL files are required.
+  See the [dependency notes](dependencies/midi/README.md).
+- **macOS 26 and 27, Apple Silicon (arm64).** The Client's recommended workflow
   uses a user-configured Apple network MIDI session; see [Mac setup](#apple-silicon-builds).
 
-Windows 10 and its loopMIDI setup are outside MIDI Forwarder's supported platforms.
-Existing binaries retain legacy WinMM fallback code, but that does not extend the
-support policy to Windows 10. If the Windows Client falls back to WinMM, check the
-Windows MIDI Services, loopback transport and optional API setup before using
-the automatic-port workflow.
+Windows 10 supports the existing hardware MIDI path through WinMM. Virtual MIDI
+presentation is not supported there; no loopMIDI installation is a prerequisite
+for hardware use. Earlier Windows 11 builds also retain the WinMM hardware path.
+Automatic virtual interfaces require the OS service/transport described above.
+The current shared provider also embeds the required Visual C++ runtime files;
+no separate Visual C++ Redistributable installation is required.
 
 The selected API is shown in the application log and by `--midi-backend`.
+Use `--midi-api-directory` to see the automatically extracted bundled API location.
 The Windows MIDI Services API requires Windows 11 25H2 or later according to
 [Microsoft's requirements](https://microsoft.github.io/MIDI/kb/minimum-requirements/).
 WinMM does not create virtual cables itself; the client does not install a driver.
@@ -325,6 +327,7 @@ Restore uses only the sources configured in `NuGet.Config`, including the
 repository's pinned packages:
 
 ```powershell
+.\Initialize-SharedMidi.ps1 -PrepareBuild
 dotnet restore .\MIDI-Forwarder.slnx --configfile .\NuGet.Config
 dotnet build .\MIDI-Forwarder.slnx --no-restore
 dotnet test .\MIDI-Forwarder.slnx --no-restore
@@ -333,9 +336,14 @@ dotnet test .\MIDI-Forwarder.slnx --no-restore
 Publish the two self-contained Win-x64 applications with:
 
 ```powershell
-dotnet publish .\src\MidiForwarder.Server\MidiForwarder.Server.csproj -c Release --no-restore
-dotnet publish .\src\MidiForwarder.Client\MidiForwarder.Client.csproj -c Release --no-restore
+.\tools\Publish-Windows.ps1
+# Build without the optional machine-local distribution hook:
+.\tools\Publish-Windows.ps1 -NoDistribute
 ```
+
+The script automatically downloads and verifies the pinned MIDI SDK for the
+build, restores packages, and uses fresh intermediate folders for each executable.
+This is build preparation only; application users need no SDK or setup script.
 
 The configured output locations are:
 
@@ -363,7 +371,7 @@ Build output (`bin`, `obj`, and `publish`) is ignored by Git.
 ## Apple Silicon builds
 
 The macOS apps use the same TCP protocol as the Windows applications and require
-macOS 15 (Sequoia) or later. The client defaults to **Apple network MIDI**, using
+macOS 26 or 27. The client defaults to **Apple network MIDI**, using
 a loopback RTP-MIDI peer to supply a native driver-owned input/output. The server
 uses RtMidi's CoreMIDI backend and lists matching physical input/output names.
 These builds support MIDI 1.0, including
@@ -394,22 +402,24 @@ Build and package both self-contained Apple Silicon apps from PowerShell:
 
 ```powershell
 .\tools\Publish-Mac.ps1
-# Rebuild and install only the client on a Mac:
+# Build and sign only the client on the development/signing Mac:
 .\tools\Publish-Mac.ps1 -ClientOnly
 dotnet restore .\MIDI-Forwarder.Mac.slnx --configfile .\NuGet.Config
 dotnet test .\MIDI-Forwarder.Mac.slnx -c Release --no-restore
 ```
 
-The script downloads the SHA-256-pinned RtMidi native library, publishes the
-`osx-arm64` applications, and creates
-`publish/macos-arm64/MIDI-Forwarder-macos-arm64.tar.gz`. Extract it on a Mac
-and follow its `README.txt` to prepare and locally sign both `.app` bundles.
-The archive preserves executable permissions. No .NET or Homebrew installation
-is needed to run the apps. On macOS the script also signs and installs the apps
-in `/Applications` and `~/Applications`. Run `--check-network-midi` with the GUI
-client disconnected to check controls, clock, sustained bulk SysEx and large
-messages through the real Apple driver. `--check-virtual-midi` checks the
-compatibility backend.
+The script publishes from fresh intermediate folders using the pinned shared MIDI
+package, including RtMidi, DryWetMIDI, Avalonia, Skia, HarfBuzz and .NET inside
+each `.app`. On the development/signing Mac it signs all native components before
+creating each ZIP. Use `-SigningIdentity` and `-NotaryProfile` for Developer ID
+signing and notarization. Ad hoc signatures are for lab testing only. A Windows
+cross-build produces a marked signing input, not an end-user release.
+
+Users copy the already signed `.app` into Applications and open it. No preparation
+script, .NET, Homebrew, PowerShell, compiler or package manager is required.
+The Apple network MIDI session is an OS configuration prerequisite for that
+backend, as described above. Run `--check-network-midi` or `--check-virtual-midi`
+only on an authorized development host; the latter creates temporary ports.
 
 The macOS UI uses **Start at login** and stores per-user LaunchAgents under
 `~/Library/LaunchAgents`. Configure this after moving the apps to their final
@@ -443,9 +453,9 @@ duplicate device names are therefore ambiguous.
 **The client shows WinMM instead of creating a virtual interface.** The OS or
 installed MIDI Services does not provide the required API/loopback transport.
 Check that Windows 11 is 25H2 or later and the compatible services, loopback
-transport and optional native API are available. Run `--midi-backend` to see why
+transport are available; the application supplies the native API. Run `--midi-backend` to see why
 WinMM was selected and consult the [dependency setup notes](dependencies/midi/README.md).
-Windows 10 is not supported.
+Windows 10 hardware MIDI is supported; virtual MIDI presentation is not.
 
 **The client keeps reconnecting.** Check the server address, firewall rule,
 listener status, and token. The server log reports invalid-token/protocol

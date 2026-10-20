@@ -1,29 +1,37 @@
 # Pinned shared MIDI dependency
 
-These first-party packages come from the independently buildable [MIDIHelperLibrary repository](https://github.com/PaulAngus/MIDIHelperLibrary). The package and namespace names remain `MightBeUseful.Midi`. MidiVersion.props, version.txt and packages.sha256 identify the selected release. Normal builds restore from this relative feed and need no sibling checkout.
+The exact package family is **0.3.10** (`MidiVersion.props`, `version.txt` and
+`packages.sha256`). It is built from MIDIHelperLibrary and copied here as a
+build feed; no sibling checkout, user-profile API installation or global runtime
+is required by the published application. `source-manifest.json` records the
+library source identity. Other consumers retain their independently pinned versions.
 
-The selected release is 0.3.6. Client and server discovery runs on a background worker at startup and on explicit refresh. Windows refreshes the backend capabilities before enumeration; the UI applies the resulting backend description and port choices together, retaining saved selections. Concurrent refresh requests share one discovery operation, automatic connection/listening waits for initial discovery, and closing the application ignores late results. Windows still uses the shared optional API setup described below; selecting 0.3.6 does not bundle the native API into this application.
+The Windows provider embeds Windows.Devices.Midi2 0.99.88-preview.10 DLL/PRI and
+the matching architecture's required Visual C++ runtime libraries. Eligible
+Windows 11 builds automatically extract verified, content-addressed private copies
+and load them using absolute paths. Windows 10 never extracts or loads this API.
+Existing application-specific extraction remains supported. The explicit
+`MBU_MIDI_API_DIRECTORY` diagnostic override is optional and must point at a
+complete compatible API if set. Ordinary users should leave it unset.
 
-To update all consumers, increment the library version and run its Publish-SharedMidi.ps1 -ConsumerRoot command with the three checkout paths. The script updates packages, version metadata and hashes. Do not copy MIDI implementation source into the applications.
+Windows 10/11 hardware MIDI uses the OS WinMM path where the current service is
+unavailable. Virtual MIDI presentation is unsupported on Windows 10. Windows 11
+virtual interfaces additionally require compatible OS MIDI Services and loopback
+transport; embedding the API does not install or upgrade those OS components.
 
-MBU_MIDI_BACKEND=auto/current/legacy controls the shared Windows policy. Run ../../Initialize-SharedMidi.ps1 -EnableWindowsServices on an eligible Windows 11 25H2+ PC to install the optional current native API for all apps. Legacy MIDI needs no optional setup. Application --midi-backend and --list-ports commands report the same provider policy.
+The macOS packages carry DryWetMIDI's universal native library and RtMidi's arm64
+library. RtMidi bulk relay is used by Forwarder (Apple Silicon); Maestro and
+Sender's standard CoreMIDI paths also support their existing Intel build target.
+Native .NET, Avalonia, Skia and HarfBuzz assets belong inside the signed .app.
+CoreMIDI and Apple network MIDI are OS components; the network backend still needs
+an enabled OS RTP session. No Homebrew or runtime setup script is required.
 
-Release 0.3.6 includes the platform-neutral RTP package. See ../../docs/shared-rtp-midi.md for preserved failure/reconnection policies. source-manifest.json identifies the local library snapshot; packages.sha256 pins the distributed bytes. Existing NuGet UI/test dependencies remain normal package dependencies.
+`Initialize-SharedMidi.ps1 -PrepareBuild` is developer package preparation only.
+The older `-EnableWindowsServices` per-user API installer is obsolete for these
+application releases and must not be included in user installation instructions.
 
-Exact package selection: MidiVersion.props keeps the plain release value for
-packaging filenames and exposes SharedMidiPackageVersion as [0.3.6]. All direct
-MIDI references, including the Mac RTP dependency, use that exact range.
-NuGet source mapping routes MightBeUseful.Midi and MightBeUseful.Midi.* exclusively
-to this bundled feed. Other configured sources retain their existing third-party
-roles. The repository-local .build/nuget-contained cache isolates builds from
-unrelated global cache entries. Source-development overrides remain explicit.
+## Validation scope
 
-Release verification: restores use exact closed ranges and exclusive bundled
-MIDI source mapping. Local empty-cache probes restore 0.3.6, refuse a missing
-bundle despite an alternate feed, and refuse a synthetic higher version. Active
-restore graphs, tested Release outputs and isolated self-contained publication
-payloads match the selected archives. Toolkit CLI/MCP relocation checks and
-Forwarder managed suites passed. No native MIDI ports were opened. See
-[offline validation and policy limits](../../docs/shared-rtp-midi.md).
-
-Release 0.3.6 also owns the complete RTP diagnostic responder. MacRtpProbe calls the shared responder directly and supplies console logging. Its measurement and failure behavior remains unchanged; production reconnect policy remains separate.
+The dependency audit separates static/published checks from clean-host and full
+MIDI workflow qualification. See crossplatform-testing/docs/runtime-dependency-audit.md
+for evidence and outstanding Windows/macOS/architecture checks.

@@ -1,9 +1,9 @@
-param([ValidateSet('Client', 'Server')][string[]]$Roles = @('Client', 'Server'))
+param([Parameter(Mandatory)][string]$BundlePath, [ValidateSet('Client','Server')][string]$Role = 'Client')
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$bundleRoot = Join-Path $repoRoot 'publish/macos-arm64/MIDI Forwarder Apple Silicon'
+$Roles = @($Role)
 
 function Read-BigEndianUInt32([byte[]]$Bytes, [int]$Offset) {
     return [uint32](([uint64]$Bytes[$Offset] -shl 24) -bor ([uint64]$Bytes[$Offset + 1] -shl 16) -bor
@@ -57,32 +57,35 @@ function Test-Arm64Binary([string]$Path) {
 }
 
 foreach ($role in $Roles) {
-    $contents = Join-Path $bundleRoot "MIDI Forwarder $role.app/Contents"
+    $contents = Join-Path $BundlePath 'Contents'
     $plist = [System.Xml.Linq.XDocument]::Load((Join-Path $contents 'Info.plist'))
     $elements = @($plist.Root.Element('dict').Elements())
     $properties = @{}
     for ($index = 0; $index -lt $elements.Count; $index += 2) {
         $properties[$elements[$index].Value] = $elements[$index + 1].Value
     }
-    if ($properties['CFBundleExecutable'] -ne "MidiForwarder.$role" -or $properties['LSMinimumSystemVersion'] -ne '15.0') {
+    if ($properties['CFBundleExecutable'] -ne "MidiForwarder.$role" -or $properties['LSMinimumSystemVersion'] -ne '26.0') {
         throw "Incorrect macOS bundle metadata for $role."
     }
-    if ($properties['CFBundleIconFile'] -ne 'midi-forwarder' -or
-        -not (Test-Path -LiteralPath (Join-Path $contents 'Resources/midi-forwarder.icns'))) {
+    if ($properties['CFBundleIconFile'] -ne 'AppIcon.icns' -or
+        -not (Test-Path -LiteralPath (Join-Path $contents 'Resources/AppIcon.icns'))) {
         throw "Missing application icon for $role."
     }
     $sourceIconHash = (Get-FileHash -LiteralPath (Join-Path $repoRoot 'assets/midi-forwarder.icns')).Hash
-    $bundleIconHash = (Get-FileHash -LiteralPath (Join-Path $contents 'Resources/midi-forwarder.icns')).Hash
+    $bundleIconHash = (Get-FileHash -LiteralPath (Join-Path $contents 'Resources/AppIcon.icns')).Hash
     if ($sourceIconHash -ne $bundleIconHash) {
         throw "Outdated application icon in the macOS $role bundle."
     }
     foreach ($binary in Get-ChildItem -LiteralPath (Join-Path $contents 'MacOS') -File) {
-        Test-Arm64Binary $binary.FullName
+        $header = [IO.File]::ReadAllBytes($binary.FullName)
+        if ($header.Length -ge 4 -and [BitConverter]::ToUInt32($header,0) -in @([Convert]::ToUInt32('feedfacf',16),[Convert]::ToUInt32('bebafeca',16))) {
+            Test-Arm64Binary $binary.FullName
+        }
     }
 }
 
 foreach ($role in $Roles) {
-    $libraryPath = Join-Path $bundleRoot "MIDI Forwarder $role.app/Contents/MacOS/librtmidi.7.dylib"
+    $libraryPath = Join-Path $BundlePath 'Contents/MacOS/librtmidi.7.dylib'
     $libraryBytes = [System.IO.File]::ReadAllBytes($libraryPath)
     $symbols = [Text.Encoding]::ASCII.GetString($libraryBytes)
     foreach ($symbol in @('rtmidi_in_create', 'rtmidi_out_create', 'rtmidi_get_port_name', 'rtmidi_open_virtual_port',

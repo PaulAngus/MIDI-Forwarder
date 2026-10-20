@@ -1,0 +1,14 @@
+<Project>
+  <!-- Match the native API expected by the pinned MightBeUseful.Midi.Windows package. -->
+  <ItemGroup>
+    <PackageReference Include="Windows.Devices.Midi2" Version="[0.99.88-preview.10]" PrivateAssets="all" GeneratePathProperty="true" ExcludeAssets="all" />
+    <Compile Include="$(MSBuildThisFileDirectory)BundledWindowsMidiApi.cs" Link="BundledWindowsMidiApi.cs" />
+  </ItemGroup>
+  <Target Name="EmbedWindowsMidiApi" BeforeTargets="AssignTargetPaths">
+    <Error Condition="!Exists('$(PkgWindows_Devices_Midi2)/runtimes/$(RuntimeIdentifier)/native/Windows.Devices.Midi2.dll')" Text="The pinned Microsoft MIDI API is missing for $(RuntimeIdentifier). Restore packages before building." />
+    <ItemGroup>
+      <EmbeddedResource Include="$(PkgWindows_Devices_Midi2)/runtimes/$(RuntimeIdentifier)/native/Windows.Devices.Midi2.dll" LogicalName="MidiForwarder.Native.Windows.Devices.Midi2.dll" />
+      <EmbeddedResource Include="$(PkgWindows_Devices_Midi2)/runtimes/$(RuntimeIdentifier)/native/Windows.Devices.Midi2.pri" LogicalName="MidiForwarder.Native.Windows.Devices.Midi2.pri" />
+    </ItemGroup>
+  </Target>
+</Project>

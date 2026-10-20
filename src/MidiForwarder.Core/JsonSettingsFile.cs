@@ -12,9 +12,14 @@ public static class JsonSettingsFile
 
     public static string GetPath(string fileName)
     {
-        string folder = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "MIDI Forwarder");
+        string? configured = Environment.GetEnvironmentVariable("MIDI_FORWARDER_DATA_DIRECTORY");
+        if (!string.IsNullOrWhiteSpace(configured) && !Path.IsPathFullyQualified(configured))
+        {
+            throw new ArgumentException("MIDI_FORWARDER_DATA_DIRECTORY must be an absolute path.");
+        }
+        string folder = string.IsNullOrWhiteSpace(configured)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MIDI Forwarder")
+            : Path.GetFullPath(configured);
         return Path.Combine(folder, fileName);
     }
 
