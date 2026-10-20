@@ -33,7 +33,9 @@ internal static class PortableXunit
             bool physical = test.Traits.Any(t => t.Key.Equals("Category", StringComparison.OrdinalIgnoreCase)
                 && t.Value.Any(v => v.Equals("Hardware", StringComparison.OrdinalIgnoreCase) || v.Equals("Compatibility", StringComparison.OrdinalIgnoreCase)));
             bool nativeCase = test.TestMethod.TestClass.Class.Name.EndsWith(".CoreMidiDuplexPortTests", StringComparison.Ordinal)
-                || test.TestMethod.Method.Name == "NativeCoreMidiLibraryLoadsAndEnumeratesWithoutHardware";
+                || test.TestMethod.Method.Name == "NativeCoreMidiLibraryLoadsAndEnumeratesWithoutHardware"
+                || test.Traits.Any(t => t.Key.Equals("Category", StringComparison.OrdinalIgnoreCase)
+                    && t.Value.Any(v => v.Equals("Native", StringComparison.OrdinalIgnoreCase)));
             bool applicable = OperatingSystem.IsWindows() || test.SkipReason != "Tests Windows mandatory file-sharing semantics.";
             bool include = physicalReadOnlyTest is null ? !physical && applicable && nativeCase == native
                 : physical && test.TestMethod.TestClass.Class.Name + "." + test.TestMethod.Method.Name == physicalReadOnlyTest;

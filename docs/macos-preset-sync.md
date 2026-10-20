@@ -178,3 +178,32 @@ left connected using the native endpoint.
 The Windows cross-build could not be completed on this checkout because its
 local `Windows.Devices.Midi2` package is absent. The Mac package builds with zero
 warnings/errors; no Windows binary was replaced.
+
+## MacBook Air connection verification (19 October 2026)
+
+The newly configured MacBook Air (Apple Silicon, macOS 27.0.1) initially had no
+enabled MIDI endpoints or RTP sessions. The client's default Apple network MIDI
+backend therefore stopped before TCP connection with the request to enable
+`Network RTP Session 1`. Package/signature checks and port enumeration alone had
+not established connection readiness on this Mac.
+
+After the user created and enabled the RTP session on port 5004, added the
+`127.0.0.1:55006` directory entry and selected the Directory entries policy, the
+client running directly from `/Volumes/MightBeUseful/MIDI Forwarder Client.app`
+established its connection to the configured Windows server. This prerequisite
+follows [Apple's network MIDI setup workflow](https://support.apple.com/guide/audio-midi-setup/share-midi-information-over-a-network-ams1012/mac).
+
+The existing `MacRtpProbe --installed` diagnostic ran on the MacBook Air against
+the actual running client. A first read of stored FM9 slot 200 passed, followed
+by 30 consecutive reads of slots 200–229 in **12.649 seconds**. All **300 SysEx
+messages** matched on two independent native receivers, with the expected
+header/chunk/footer sequence, lengths and valid Fractal checksums. The client's
+original TCP connection remained established afterward. These were stored-preset
+reads, with no preset navigation or device writes. The network-folder client's
+strict code signature also verified, and it was left connected.
+
+The tested client executable SHA-256 is
+`f5881227d484e77c88db2164874758c0f2a3d653de85bef408d175ab65a3b8c6`.
+Evidence is under `artifacts/mac-network-publish-20261019/`, including the smoke
+read, sustained read log and executable identity. This qualifies the Mac client
+through the existing Windows server; it does not qualify the Mac server relay.

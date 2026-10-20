@@ -7,7 +7,8 @@ if (OperatingSystem.IsWindows()) stages.Add(new("functional-midiforwarder-client
 if (OperatingSystem.IsWindows()) stages.Add(new("functional-midiforwarder-server-tests", "Functional", "bin/tests/MidiForwarder.LabTests" + suffix, ["MidiForwarder.Server.Tests", "{result}"]));
 stages.Add(new("functional-midiforwarder-coremidi-tests", "Functional", "bin/tests/MidiForwarder.LabTests" + suffix, ["MidiForwarder.CoreMidi.Tests", "{result}"]));
 if (OperatingSystem.IsMacOS()) { stages.Add(new("native-coremidi", "Native", "bin/tests/MidiForwarder.LabTests" + suffix, ["MidiForwarder.CoreMidi.Tests", "{result}", "Native"])); }
-stages.Add(new("native-midi", "Native", UnavailableReason: "Two-machine client/server routing and native MIDI loopback need a dedicated coordinated adapter; offline transport tests do not qualify them."));
+if (OperatingSystem.IsMacOS()) { stages.Add(new("native-client-server-workflows", "Native", "bin/tests/MidiForwarder.LabTests" + suffix, ["MidiForwarder.MacWorkflow.Tests", "{result}", "Native"])); }
+stages.Add(new("native-midi", "Native", UnavailableReason: "Packaged Client/Server routing between separate hosts and real-device preset changes still require coordinated workflow evidence. Same-host development-VM native relay tests do not qualify those workflows."));
 stages.Add(new("desktop", "Desktop", UnavailableReason: "Desktop automation is not implemented; headless UI tests are included in Functional.", IncludeInAll: true));
 try
 {

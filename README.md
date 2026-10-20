@@ -1,5 +1,16 @@
 # MIDI Forwarder
 
+The Test Lab development Mac profile now includes native Client/Server workflow
+tests compiled from the production Mac relay sources. They exercise real native
+compatibility endpoints and TCP transfer in both directions, message integrity,
+authentication rejection, disconnect/reconnect, server restart and cleanup. A
+separate required case exercises the default Apple Network MIDI mode through an
+existing enabled session; its absence leaves the stage incomplete. These tests
+create temporary endpoints on the development VM and must never be deployed to
+the physical Mac or included in offline profiles. Existing Forwarder sessions may
+be used for separately authorized real-device preset-change acceptance. A native
+codec or same-host relay pass does not establish packaged two-machine operation.
+
 Current source release: [1.0.2](docs/releases/1.0.2.md).
 
 Supported platforms: **Windows 10 and Windows 11 (x64)** and **macOS 26 and 27 (Apple Silicon)**. Virtual MIDI presentation is not supported on Windows 10.

@@ -9,6 +9,7 @@
     <ProjectReference Include="../../tests/MidiForwarder.Client.Tests/MidiForwarder.Client.Tests.csproj" Condition="'$(TargetFramework)' != 'net10.0' and '$(TestLabProfile)' != 'OfflineWindows' and '$(TestLabProfile)' != 'PhysicalWindowsReadOnly'" />
     <ProjectReference Include="../../tests/MidiForwarder.Server.Tests/MidiForwarder.Server.Tests.csproj" Condition="'$(TargetFramework)' != 'net10.0' and '$(TestLabProfile)' != 'OfflineWindows' and '$(TestLabProfile)' != 'PhysicalWindowsReadOnly'" />
     <ProjectReference Include="../../tests/MidiForwarder.CoreMidi.Tests/MidiForwarder.CoreMidi.Tests.csproj" />
+    <ProjectReference Include="../../tests/MidiForwarder.MacWorkflow.Tests/MidiForwarder.MacWorkflow.Tests.csproj" Condition="'$(TargetFramework)' == 'net10.0' and '$(TestLabProfile)' == ''" />
     <Compile Include="../../dependencies/test-lab/PortableXunit.cs" Link="PortableXunit.cs" />
     <PackageReference Include="xunit.runner.utility" Version="2.9.3" />
   </ItemGroup>
