@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework Condition="'$(MacChecks)' != 'true'">net10.0-windows10.0.26100.0</TargetFramework>
+    <SupportedOSPlatformVersion Condition="'$(MacChecks)' != 'true'">10.0.17763.0</SupportedOSPlatformVersion>
+    <DefineConstants Condition="'$(MacChecks)' == 'true'">$(DefineConstants);MACOS</DefineConstants>
+    <NoWarn>$(NoWarn);CA2007;CA1031;CA1859</NoWarn>
+  </PropertyGroup>
+  <!-- Reference immutable published assemblies; never rebuild the application for this check. -->
+  <ItemGroup>
+    <Reference Include="MidiForwarder.Client" HintPath="$(ClientPayload)/MidiForwarder.Client.dll" />
+    <Reference Include="MidiForwarder.Server" HintPath="$(ServerPayload)/MidiForwarder.Server.dll" />
+    <Reference Include="MidiForwarder.Core" HintPath="$(ClientPayload)/MidiForwarder.Core.dll" />
+    <Reference Include="MightBeUseful.Midi" HintPath="$(ClientPayload)/MightBeUseful.Midi.dll" />
+    <Reference Include="MightBeUseful.Midi.Windows" HintPath="$(ClientPayload)/MightBeUseful.Midi.Windows.dll" Condition="'$(MacChecks)' != 'true'" />
+    <Reference Include="MightBeUseful.Midi.CoreMidi" HintPath="$(ClientPayload)/MightBeUseful.Midi.CoreMidi.dll" Condition="'$(MacChecks)' == 'true'" />
+    <Reference Include="MightBeUseful.Midi.Rtp" HintPath="$(ClientPayload)/MightBeUseful.Midi.Rtp.dll" Condition="'$(MacChecks)' == 'true'" />
+    <PackageReference Include="Avalonia.Headless" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3" />
+    <Compile Include="HostResourceLease.cs" />
+  </ItemGroup>
+  <PropertyGroup><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup>
+  <ItemGroup><Compile Include="Program.cs" /></ItemGroup>
+  <Target Name="RequirePublishedPayload" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('$(ClientPayload)/MidiForwarder.Client.dll') Or !Exists('$(ServerPayload)/MidiForwarder.Server.dll')" Text="Provide ClientPayload and ServerPayload pointing to the published managed assemblies." />
+  </Target>
+</Project>
