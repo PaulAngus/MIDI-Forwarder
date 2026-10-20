@@ -49,7 +49,7 @@ public sealed class ServerWindowTests
                 mainFrame?.Save(Path.Combine(output, $"server-{(dark ? "dark" : "light")}-{width}-{height}-main.png"));
             }
 
-            for (int page = 0; page < 3; page++)
+            for (int page = 0; page < 4; page++)
             {
                 window.ShowConfiguration(page);
                 configuration.UpdateLayout();

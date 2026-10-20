@@ -101,6 +101,59 @@ public sealed class TcpMidiBridgeTests
         Assert.False(logs.Reader.TryRead(out _));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PreservesMixedTrafficWhenCaptureStartsAndStopsDuringConnection(bool enableCapture)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using var sessionCancellation = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        using var peer = new TcpClient();
+        Task connect = peer.ConnectAsync((IPEndPoint)listener.LocalEndpoint, timeout.Token).AsTask();
+        using TcpClient relay = await listener.AcceptTcpClientAsync(timeout.Token);
+        await connect;
+        await using var midi = new TestMidiPort();
+        await using var capture = new MidiCapture();
+        Task bridge = TcpMidiBridge.RunAsync(relay.GetStream(), midi, null, sessionCancellation.Token, capture: capture);
+        var captureStream = new MemoryStream();
+        try
+        {
+            if (enableCapture) { capture.Start(captureStream, "test.jsonl", "server"); }
+            byte[] bulk = Enumerable.Repeat((byte)0x55, 70000).ToArray();
+            bulk[0] = 0xf0; bulk[^1] = 0xf7;
+            MidiPacket[] messages = [new(MidiPacketFormat.Midi1, new byte[] { 0xc0, 5 }),
+                new(MidiPacketFormat.Midi1, bulk), MidiPacket.FromUmpWords([0x43913c00, 0x7fffffff])];
+            for (int repeat = 0; repeat < 10; repeat++)
+            {
+                foreach (MidiPacket message in messages)
+                {
+                    await midi.Input.Writer.WriteAsync(message, timeout.Token);
+                    await TcpMidiBridge.WriteFrameAsync(peer.GetStream(), message, timeout.Token);
+                    MidiPacket receivedByPeer = (await TcpMidiBridge.ReadFrameAsync(peer.GetStream(), timeout.Token))!.Value;
+                    MidiPacket receivedByMidi = await midi.Output.Reader.ReadAsync(timeout.Token);
+                    Assert.Equal(message.Format, receivedByPeer.Format);
+                    Assert.Equal(message.Format, receivedByMidi.Format);
+                    Assert.Equal(message.Data.ToArray(), receivedByPeer.Data.ToArray());
+                    Assert.Equal(message.Data.ToArray(), receivedByMidi.Data.ToArray());
+                }
+            }
+            await capture.StopAsync();
+            Assert.Equal(enableCapture ? 60 : 0, capture.GetSnapshot().Packets);
+            Assert.Equal(0, capture.GetSnapshot().LostRecords);
+            // Stopping capture leaves the same bridge running and forwarding.
+            await midi.Input.Writer.WriteAsync(messages[0], timeout.Token);
+            Assert.NotNull(await TcpMidiBridge.ReadFrameAsync(peer.GetStream(), timeout.Token));
+            Assert.False(bridge.IsCompleted);
+        }
+        finally
+        {
+            await sessionCancellation.CancelAsync();
+            await bridge.WaitAsync(timeout.Token);
+        }
+    }
+
     private sealed class TestMidiPort : IMidiDuplexPort
     {
         public Channel<MidiPacket> Input { get; } = Channel.CreateUnbounded<MidiPacket>();

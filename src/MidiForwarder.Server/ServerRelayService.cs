@@ -37,6 +37,8 @@ public sealed class ServerRelayService : IAsyncDisposable
 
     public MidiTrafficMonitor Traffic { get; } = new();
 
+    public MidiCapture Capture { get; } = new();
+
     public string? ConnectedClient { get; private set; }
 
     public string? LastConnectionError { get; private set; }
@@ -125,6 +127,7 @@ public sealed class ServerRelayService : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await StopAsync().ConfigureAwait(false);
+        await Capture.DisposeAsync().ConfigureAwait(false);
         _clientGate.Dispose();
     }
 
@@ -190,7 +193,7 @@ public sealed class ServerRelayService : IAsyncDisposable
                 LastConnectionError = null;
                 ConnectedClient = client.Client.RemoteEndPoint?.ToString() ?? "Network client";
                 SetStatus("Client connected; MIDI endpoint open");
-                await TcpMidiBridge.RunAsync(stream, midi, WriteLog, cancellationToken, Traffic).ConfigureAwait(false);
+                await TcpMidiBridge.RunAsync(stream, midi, WriteLog, cancellationToken, Traffic, Capture).ConfigureAwait(false);
                 WriteLog("Client disconnected.");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

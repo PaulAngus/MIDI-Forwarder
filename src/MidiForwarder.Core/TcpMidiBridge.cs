@@ -9,21 +9,30 @@ public static class TcpMidiBridge
         IMidiDuplexPort midi,
         Action<string>? log,
         CancellationToken cancellationToken,
-        MidiTrafficMonitor? traffic = null)
+        MidiTrafficMonitor? traffic = null,
+        MidiCapture? capture = null)
     {
-        using var sessionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        Task midiToNetwork = PumpMidiToNetworkAsync(stream, midi, log, traffic, sessionCancellation.Token);
-        Task networkToMidi = PumpNetworkToMidiAsync(stream, midi, log, traffic, sessionCancellation.Token);
-
-        await Task.WhenAny(midiToNetwork, networkToMidi).ConfigureAwait(false);
-        await sessionCancellation.CancelAsync().ConfigureAwait(false);
-
+        string? connection = capture?.BeginConnection(midi.InputName, midi.OutputName);
         try
         {
-            await Task.WhenAll(midiToNetwork, networkToMidi).ConfigureAwait(false);
+            using var sessionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            Task midiToNetwork = PumpMidiToNetworkAsync(stream, midi, log, traffic, capture, connection, sessionCancellation.Token);
+            Task networkToMidi = PumpNetworkToMidiAsync(stream, midi, log, traffic, capture, connection, sessionCancellation.Token);
+
+            await Task.WhenAny(midiToNetwork, networkToMidi).ConfigureAwait(false);
+            await sessionCancellation.CancelAsync().ConfigureAwait(false);
+
+            try
+            {
+                await Task.WhenAll(midiToNetwork, networkToMidi).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (sessionCancellation.IsCancellationRequested)
+            {
+            }
         }
-        catch (OperationCanceledException) when (sessionCancellation.IsCancellationRequested)
+        finally
         {
+            if (connection is not null) { capture!.EndConnection(connection); }
         }
     }
 
@@ -69,12 +78,15 @@ public static class TcpMidiBridge
         IMidiDuplexPort midi,
         Action<string>? log,
         MidiTrafficMonitor? traffic,
+        MidiCapture? capture,
+        string? connection,
         CancellationToken cancellationToken)
     {
         await using var summary = new TrafficSummary("MIDI -> network", log);
         bool trace = Trace.Enabled;
         await foreach (MidiPacket packet in midi.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
+            if (connection is not null) { capture!.Record(connection, "midi-to-network", packet); }
             await WriteFrameAsync(stream, packet, cancellationToken).ConfigureAwait(false);
             traffic?.RecordMidiToNetwork(packet.Data.Length);
             summary.Add(packet.Data.Length);
@@ -90,6 +102,8 @@ public static class TcpMidiBridge
         IMidiDuplexPort midi,
         Action<string>? log,
         MidiTrafficMonitor? traffic,
+        MidiCapture? capture,
+        string? connection,
         CancellationToken cancellationToken)
     {
         await using var summary = new TrafficSummary("Network -> MIDI", log);
@@ -101,6 +115,8 @@ public static class TcpMidiBridge
             {
                 break;
             }
+
+            if (connection is not null) { capture!.Record(connection, "network-to-midi", packet.Value); }
 
             if (trace)
             {

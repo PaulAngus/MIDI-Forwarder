@@ -22,6 +22,7 @@ public sealed partial class ServerWindow : Window
     private readonly Action<ServerSettings> _saveSettings;
     private readonly Action<bool> _setStartupRegistration;
     private readonly ServerSettingsWindow _configuration;
+    private readonly MidiForwarder.Ui.MidiCapturePanel _capturePanel;
     private readonly ComboBox _midiEndpoint;
     private readonly ComboBox _midiInput;
     private readonly ComboBox _midiOutput;
@@ -56,6 +57,8 @@ public sealed partial class ServerWindow : Window
         _midiDiscovery = midiDiscovery ?? new MidiDeviceDiscovery(DiscoverMidiDevices);
         AvaloniaXamlLoader.Load(this);
         _configuration = new ServerSettingsWindow();
+        _capturePanel = new MidiForwarder.Ui.MidiCapturePanel(_service.Capture, "server");
+        View<ContentControl>("CaptureHost").Content = _capturePanel;
         _midiEndpoint = View<ComboBox>("MidiEndpoint");
         _midiInput = View<ComboBox>("MidiInput");
         _midiOutput = View<ComboBox>("MidiOutput");
@@ -84,7 +87,8 @@ public sealed partial class ServerWindow : Window
         _toggleButton.Click += async (_, _) => await ToggleServerAsync().ConfigureAwait(true);
         View<Button>("RefreshEndpointsButton").Click += async (_, _) => await RefreshMidiDevicesAsync().ConfigureAwait(true);
         View<Button>("HideButton").Click += (_, _) => HideToTray();
-        View<Button>("SettingsButton").Click += (_, _) => ShowConfiguration();
+        View<Button>("SettingsButton").Click += (_, _) => ShowConfiguration(
+            _service.Capture.GetSnapshot() is { IsRecording: true } or { LostRecords: > 0 } ? 3 : 0);
         View<Button>("SaveConnectionButton").Click += (_, _) => SaveConnectionSettings();
         View<Button>("SettingsConnectionButton").Click += async (_, _) =>
         {
@@ -416,6 +420,9 @@ public sealed partial class ServerWindow : Window
 
     private void RefreshPresentation()
     {
+        MidiCaptureSnapshot capture = _service.Capture.GetSnapshot();
+        View<Button>("SettingsButton").Content = capture.IsRecording ? "Settings (capture on)"
+            : capture.LostRecords > 0 ? "Settings (capture issue)" : "Settings";
         bool running = _service.IsRunning;
         bool connected = running && _service.ConnectedClient is not null;
         string? error = _startFailure ?? _midiDiscoveryError ?? (running ? _service.LastConnectionError : null);
@@ -516,6 +523,7 @@ public sealed partial class ServerWindow : Window
         _closed = true;
         _allowClose = true;
         _configuration.Close();
+        _capturePanel.StopUpdates();
         _activityTimer.Stop();
         _service.LogMessage -= OnLogMessage;
         _service.StatusChanged -= OnStatusChanged;

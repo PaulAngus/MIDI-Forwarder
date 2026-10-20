@@ -14,6 +14,7 @@
     <AvaloniaResource Include="../../assets/midi-forwarder.ico" Link="Assets/midi-forwarder.ico" />
     <AvaloniaResource Include="../../assets/midi-forwarder-256.png" Link="Assets/midi-forwarder-256.png" />
     <Compile Include="../../tools/BrandAssets.cs" Link="BrandAssets.cs" />
+    <Compile Include="../../tools/MidiCapturePanel.cs" Link="MidiCapturePanel.cs" />
     <Compile Include="../../tools/TrayStatusIndicator.cs" Link="TrayStatusIndicator.cs" />
     <AvaloniaResource Include="../../tools/FluentUtilityStyles.axaml" Link="Assets/FluentUtilityStyles.axaml" />
   </ItemGroup>

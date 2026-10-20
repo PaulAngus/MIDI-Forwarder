@@ -46,6 +46,8 @@ public sealed class ClientRelayService : IAsyncDisposable
 
     public MidiTrafficMonitor Traffic { get; } = new();
 
+    public MidiCapture Capture { get; } = new();
+
     public Task StartAsync(ClientSettings settings)
     {
         if (IsRunning)
@@ -123,7 +125,11 @@ public sealed class ClientRelayService : IAsyncDisposable
         SetStatus("Stopped");
     }
 
-    public async ValueTask DisposeAsync() => await StopAsync().ConfigureAwait(false);
+    public async ValueTask DisposeAsync()
+    {
+        await StopAsync().ConfigureAwait(false);
+        await Capture.DisposeAsync().ConfigureAwait(false);
+    }
 
     private async Task RunReconnectLoopAsync(
         Uri serverUri,
@@ -163,7 +169,7 @@ public sealed class ClientRelayService : IAsyncDisposable
                 IsConnected = true;
                 SetStatus("Connected");
                 WriteLog("Connected to server using low-latency TCP (TCP_NODELAY).");
-                await TcpMidiBridge.RunAsync(stream, connectionMidi, WriteLog, cancellationToken, Traffic).ConfigureAwait(false);
+                await TcpMidiBridge.RunAsync(stream, connectionMidi, WriteLog, cancellationToken, Traffic, Capture).ConfigureAwait(false);
                 if (!cancellationToken.IsCancellationRequested)
                 {
                     LastConnectionError = "The server closed the connection. Check the server and shared token.";

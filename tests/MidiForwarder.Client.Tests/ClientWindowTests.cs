@@ -51,7 +51,7 @@ public sealed class ClientWindowTests
                 mainFrame?.Save(Path.Combine(output, $"client-{(dark ? "dark" : "light")}-{width}-{height}-main.png"));
             }
 
-            for (int page = 0; page < 3; page++)
+            for (int page = 0; page < 4; page++)
             {
                 window.ShowConfiguration(page);
                 configuration.UpdateLayout();

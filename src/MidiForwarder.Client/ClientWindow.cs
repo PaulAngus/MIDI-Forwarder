@@ -22,6 +22,7 @@ public sealed partial class ClientWindow : Window
     private readonly Action<ClientSettings> _saveSettings;
     private readonly Action<bool> _setStartupRegistration;
     private readonly ClientSettingsWindow _configuration;
+    private readonly MidiForwarder.Ui.MidiCapturePanel _capturePanel;
     private readonly TextBox _interfaceName;
     private readonly TextBox _serverUri;
     private readonly TextBox _token;
@@ -60,6 +61,8 @@ public sealed partial class ClientWindow : Window
         _midiDiscovery = midiDiscovery ?? new MidiDeviceDiscovery(DiscoverMidiDevices);
         AvaloniaXamlLoader.Load(this);
         _configuration = new ClientSettingsWindow();
+        _capturePanel = new MidiForwarder.Ui.MidiCapturePanel(_service.Capture, "client");
+        View<ContentControl>("CaptureHost").Content = _capturePanel;
         _interfaceName = View<TextBox>("InterfaceName");
         _serverUri = View<TextBox>("ServerUri");
         _token = View<TextBox>("Token");
@@ -91,7 +94,8 @@ public sealed partial class ClientWindow : Window
         };
         _toggleButton.Click += async (_, _) => await ToggleConnectionAsync().ConfigureAwait(true);
         View<Button>("HideButton").Click += (_, _) => HideToTray();
-        View<Button>("SettingsButton").Click += (_, _) => ShowConfiguration();
+        View<Button>("SettingsButton").Click += (_, _) => ShowConfiguration(
+            _service.Capture.GetSnapshot() is { IsRecording: true } or { LostRecords: > 0 } ? 3 : 0);
         View<Button>("SaveConnectionButton").Click += (_, _) => SaveConnectionSettings();
         View<Button>("SettingsConnectionButton").Click += async (_, _) =>
         {
@@ -490,6 +494,9 @@ public sealed partial class ClientWindow : Window
 
     private void RefreshPresentation()
     {
+        MidiCaptureSnapshot capture = _service.Capture.GetSnapshot();
+        View<Button>("SettingsButton").Content = capture.IsRecording ? "Settings (capture on)"
+            : capture.LostRecords > 0 ? "Settings (capture issue)" : "Settings";
         bool running = _service.IsRunning;
         bool connected = running && _service.IsConnected;
         string? error = _startFailure ?? _midiDiscoveryError ?? (running ? _service.LastConnectionError : null);
@@ -590,6 +597,7 @@ public sealed partial class ClientWindow : Window
         _closed = true;
         _allowClose = true;
         _configuration.Close();
+        _capturePanel.StopUpdates();
         _activityTimer.Stop();
         _service.LogMessage -= OnLogMessage;
         _service.StatusChanged -= OnStatusChanged;

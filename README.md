@@ -260,6 +260,15 @@ both directions. It removes the test endpoints on normal completion and exits wi
 The legacy virtual-cable diagnostic remains in existing binaries for historical
 compatibility. It is not part of the supported Windows 11 automatic-port setup.
 
+## Full MIDI capture (1.0.3)
+
+Open **Settings → Capture** on the server or client and choose **Start capture**.
+It records complete traffic in both directions, with timestamps and action markers,
+without reconnecting. Choose **Stop capture**, then **Open capture folder**.
+Capture is off by default, stops at 100 MiB, and reports any lost records or disk errors.
+Files remain on this computer and can contain preset names and settings.
+See [Full MIDI capture](docs/midi-capture.md) for recording steps and the file format.
+
 ## Diagnostics and logs
 
 Both applications use compact 520-pixel Fluent windows with shared light and dark themes.

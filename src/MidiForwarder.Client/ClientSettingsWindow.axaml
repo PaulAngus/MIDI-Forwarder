@@ -126,6 +126,9 @@
           <TextBlock Name="BackendDescription" Grid.Row="3" Classes="secondary" TextWrapping="Wrap" Margin="0,8,0,0" />
         </Grid>
       </TabItem>
+      <TabItem Header="Capture">
+        <ContentControl Name="CaptureHost" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+      </TabItem>
     </TabControl>
     <Border Grid.Row="3" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="24,12">
       <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto,Auto">
