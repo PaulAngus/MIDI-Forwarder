@@ -337,8 +337,6 @@ Publish the two self-contained Win-x64 applications with:
 
 ```powershell
 .\tools\Publish-Windows.ps1
-# Build without the optional machine-local distribution hook:
-.\tools\Publish-Windows.ps1 -NoDistribute
 ```
 
 The script automatically downloads and verifies the pinned MIDI SDK for the
@@ -352,13 +350,10 @@ publish\server\MidiForwarder.Server.exe
 publish\client\MidiForwarder.Client.exe
 ```
 
-On Windows, each publish automatically runs the optional local
-`CopyPublishedEXEs.ps1` script when it exists. It copies the newly published
-EXE directly into each destination folder configured in that script, without
-creating client or server subdirectories. The script is ignored by Git so
-machine-specific destinations stay local. All configured destination folders
-must exist; a failed copy fails the publish command. Run
-`.\CopyPublishedEXEs.ps1` manually to copy both existing published EXEs.
+The publish script produces release files only. Configure optional Windows
+signing as described in [release signing](docs/github-releases.md).
+Run `.\tools\Test-WindowsPublish.ps1` for isolated publisher checks; build
+preparation and compilation are simulated, and no application or MIDI is opened.
 
 The projects enable compressed single-file publishing and native-library
 self-extraction for `win-x64`. ReadyToRun is disabled to keep executables

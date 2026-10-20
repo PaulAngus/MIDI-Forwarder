@@ -13,7 +13,7 @@ List available certificates without exporting the private key:
 Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |
     Select-Object Subject, Thumbprint, NotAfter, HasPrivateKey
 $env:MBU_WINDOWS_SIGNING_THUMBPRINT = 'YOUR-EXACT-40-CHARACTER-THUMBPRINT'
-./tools/Publish-Windows.ps1 -NoDistribute -Sign
+./tools/Publish-Windows.ps1 -Sign
 ```
 
 The card software may display a PIN prompt. Enter the PIN there only; never put
@@ -24,8 +24,7 @@ discovered on PATH or in the installed Windows SDK. Override its location with
 The publisher signs the final EXE with SHA-256 and an RFC 3161 SHA-256 timestamp
 (default `http://time.certum.pl`, configurable with `-TimestampServer`). It checks
 SignTool verification, Windows trust, the exact signer and the presence of a
-timestamp before distribution copies. Forwarder waits
-until both client and server pass before copying either to distribution folders.
+timestamp before finishing publication.
 Missing certificates, token/PIN problems, timestamp failures and verification
 failures stop the script. Distribute only the EXEs from a successful run.
 
