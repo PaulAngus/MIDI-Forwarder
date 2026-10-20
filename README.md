@@ -323,6 +323,12 @@ TCP port directly to the public internet.
 
 ## Build, test, and publish
 
+Build, test, sign and package locally on the appropriate Windows or Mac
+development machine. GitHub Actions is disabled. Keep the existing local commands
+below and the [release instructions](docs/github-releases.md); use audited offline
+profiles when MIDI access is not authorized, and run native/hardware checks only
+with explicit authorization.
+
 Restore uses only the sources configured in `NuGet.Config`, including the
 repository's pinned packages:
 
