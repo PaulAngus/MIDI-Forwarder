@@ -24,9 +24,29 @@ function Checked([string]$Tool, [string[]]$Arguments) {
     & $Tool @Arguments | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "$Tool failed ($LASTEXITCODE)." }
 }
-Checked 'dotnet' @('publish', $Project, '-c','Release','-r',"osx-$Architecture",'--self-contained','true',
-    '--artifacts-path',(Join-Path $release 'build'),'-o',$binary,'-p:PublishSingleFile=false',
-    '-p:EnableCompressionInSingleFile=false','-p:DebugType=None','-p:DebugSymbols=false')
+# Keep intermediates and restored packages independent of the checkout and
+# release paths, which can exceed Windows path limits during cross-builds.
+$buildRoot = (Get-Item -LiteralPath ([IO.Path]::GetTempPath())).FullName
+$build = Join-Path $buildRoot ('mbu-mac-' + [guid]::NewGuid().ToString('N'))
+# NuGet's cache is reusable: build-task processes can retain locks on its DLLs
+# after dotnet exits. Only the per-publish intermediates are removed below.
+$packages = Join-Path $buildRoot 'mbu-mac-packages'
+New-Item -ItemType Directory -Path $build | Out-Null
+try {
+    Checked 'dotnet' @('publish', $Project, '-c','Release','-r',"osx-$Architecture",'--self-contained','true',
+        '--artifacts-path',$build,'-o',$binary,'-p:PublishSingleFile=false',
+        "-p:RestorePackagesPath=$packages",
+        '-p:EnableCompressionInSingleFile=false','-p:DebugType=None','-p:DebugSymbols=false')
+}
+finally {
+    $buildDirectory = Get-Item -LiteralPath $build -Force
+    if ($buildDirectory.Parent.FullName.TrimEnd([IO.Path]::DirectorySeparatorChar) -ne
+            $buildRoot.TrimEnd([IO.Path]::DirectorySeparatorChar) -or
+        ($buildDirectory.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw "Refusing to remove an unexpected build directory: $($buildDirectory.FullName)"
+    }
+    Remove-Item -LiteralPath $buildDirectory.FullName -Recurse -Force
+}
 foreach ($required in @($Executable, "$Executable.runtimeconfig.json", 'libcoreclr.dylib',
     'libAvaloniaNative.dylib', 'libSkiaSharp.dylib', 'libHarfBuzzSharp.dylib',
     'Melanchall_DryWetMidi_Native64.dylib')) {
@@ -66,7 +86,9 @@ foreach ($file in Get-ChildItem -LiteralPath $binary -File) {
         $imports = & /usr/bin/otool -L $file.FullName
         if ($LASTEXITCODE -ne 0) { throw "Cannot inspect native dependencies: $($file.Name)" }
         $installIds = @(& /usr/bin/otool -D $file.FullName | Select-Object -Skip 1 | ForEach-Object { $_.Trim() })
-        foreach ($line in $imports | Select-Object -Skip 1) {
+        # Universal binaries have a heading for every architecture. Only the
+        # indented records describe libraries; headings contain the binary path.
+        foreach ($line in $imports | Where-Object { $_ -match '^\s+\S' }) {
             $dependency = ($line.Trim() -split '\s+\(')[0]
             # A dylib's own install ID is not a dependency; inspect load commands
             # separately with audit_native.py before approving the release.
