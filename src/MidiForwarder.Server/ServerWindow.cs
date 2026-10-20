@@ -40,6 +40,8 @@ public sealed partial class ServerWindow : Window
     private bool _applyingSettings;
     private ServerSettings? _savedSettings;
     private string? _startFailure;
+    private string? _displayedListenUrl;
+    private DateTimeOffset _nextAddressRefresh;
 
     public ServerWindow(ServerRelayService service)
         : this(service, () => JsonSettingsFile.Load<ServerSettings>(SettingsFileName),
@@ -446,6 +448,12 @@ public sealed partial class ServerWindow : Window
             : running ? $"Listening on {_savedSettings?.ListenUrl ?? _listenUrl.Text}" : "Start the server to accept a MIDI client.";
 
         ServerSettings displayed = _savedSettings ?? ReadSettings();
+        if (_displayedListenUrl != displayed.ListenUrl || DateTimeOffset.UtcNow >= _nextAddressRefresh)
+        {
+            View<SelectableTextBlock>("ServerAddressText").Text = ServerAddressDisplay.GetText(displayed.ListenUrl);
+            _displayedListenUrl = displayed.ListenUrl;
+            _nextAddressRefresh = DateTimeOffset.UtcNow.AddSeconds(5);
+        }
 
 #if MACOS
         string endpoint = displayed.MidiEndpoint;

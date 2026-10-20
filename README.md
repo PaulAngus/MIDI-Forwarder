@@ -299,8 +299,10 @@ See [Full MIDI capture](docs/midi-capture.md) for recording steps and the file f
 ## Diagnostics and logs
 
 Both applications use compact 520-pixel Fluent windows with shared light and dark themes.
-The server's main view shows the selected endpoint, client connection, and two MIDI
-activity lights. Each light stays on briefly after a packet is successfully
+The server's main view shows the selected endpoint, client connection, server IP
+addresses with the TCP port, and two MIDI activity lights. The addresses can be
+selected and copied into a client; they refresh when network addresses change.
+Each light stays on briefly after a packet is successfully
 forwarded in that direction and returns to idle when traffic stops.
 Open **Settings → Diagnostics** for message/byte totals and timestamped connection logs;
 the last connection's totals remain available after disconnect. Counts reset

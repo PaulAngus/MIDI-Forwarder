@@ -38,6 +38,8 @@
               <StackPanel Spacing="4">
                 <TextBlock Name="ClientSummary" Text="Server stopped" FontSize="12" TextWrapping="Wrap" />
                 <TextBlock Name="ConnectionDetail" Text="Start the server to accept a MIDI client." Classes="secondary" TextWrapping="Wrap" />
+                <TextBlock Text="Server IP address" Classes="secondary" Margin="0,8,0,0" />
+                <SelectableTextBlock Name="ServerAddressText" FontSize="12" TextWrapping="Wrap" />
               </StackPanel>
             </Border>
             <Grid Name="ActivityGrid" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" Margin="0,24,0,0">
