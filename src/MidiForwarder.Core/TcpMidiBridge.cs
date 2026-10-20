@@ -63,6 +63,13 @@ public static class TcpMidiBridge
         }
 
         int length = BinaryPrimitives.ReadInt32BigEndian(header);
+        if (length == 0)
+        {
+            byte[] status = new byte[1];
+            await stream.ReadExactlyAsync(status, cancellationToken).ConfigureAwait(false);
+            if (status[0] == (byte)TcpSessionStatus.Replaced) { throw new TcpSessionEndedException(); }
+            throw new InvalidDataException("Unexpected session control during MIDI forwarding.");
+        }
         if (length <= 1 || length > MidiFrame.MaximumLength + 1)
         {
             throw new InvalidDataException($"Invalid MIDI frame length: {length}.");

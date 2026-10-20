@@ -31,12 +31,16 @@ public sealed class ServerConfigurationTests
             await window.InitializeAsync();
             window.ShowConfiguration();
             window.Control<TextBox>("Token")!.Text = "new-token";
+            window.Control<ToggleSwitch>("AllowTakeover")!.IsChecked = true;
             var button = window.Control<Button>("SettingsConnectionButton")!;
             Assert.Equal("Start server", button.Content);
             button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.True(service.IsRunning);
             Assert.Equal("new-token", saved.Token);
             Assert.Equal("new-token", started?.Token);
+            Assert.True(saved.AllowTakeover);
+            Assert.True(started?.AllowTakeover);
+            Assert.False(window.Control<ToggleSwitch>("AllowTakeover")!.IsEnabled);
             Assert.Equal("Stop server", button.Content);
             Assert.False(window.Control<Button>("SaveConnectionButton")!.IsEnabled);
 
@@ -49,6 +53,7 @@ public sealed class ServerConfigurationTests
             Assert.False(service.IsRunning);
             Assert.Equal("Start server", button.Content);
             Assert.True(window.Control<Button>("SaveConnectionButton")!.IsEnabled);
+            Assert.True(window.Control<ToggleSwitch>("AllowTakeover")!.IsEnabled);
             Assert.True(window.ConfigurationWindow.IsVisible);
         }
         finally
@@ -76,9 +81,11 @@ public sealed class ServerConfigurationTests
             window.ShowConfiguration();
             window.Control<TextBox>("ListenUrl")!.Text = "tcp://127.0.0.1:5181";
             window.Control<TextBox>("Token")!.Text = "new-token";
+            window.Control<ToggleSwitch>("AllowTakeover")!.IsChecked = true;
             window.Control<Button>("SaveConnectionButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.Equal("tcp://127.0.0.1:5181", saved.ListenUrl);
             Assert.Equal("new-token", saved.Token);
+            Assert.True(saved.AllowTakeover);
             Assert.False(service.IsRunning);
             Assert.Equal(0, deviceChecks);
             Assert.Equal(0, registrations);
@@ -86,10 +93,12 @@ public sealed class ServerConfigurationTests
             Assert.Equal("Connection settings saved.", window.Control<TextBlock>("SaveStatus")!.Text);
 
             window.Control<TextBox>("ListenUrl")!.Text = "tcp://127.0.0.1:5182";
+            window.Control<ToggleSwitch>("AllowTakeover")!.IsChecked = false;
             window.ConfigurationWindow.Close();
             Assert.False(window.ConfigurationWindow.IsVisible);
             window.ShowConfiguration();
             Assert.Equal("tcp://127.0.0.1:5181", window.Control<TextBox>("ListenUrl")!.Text);
+            Assert.True(window.Control<ToggleSwitch>("AllowTakeover")!.IsChecked);
             window.Control<TextBox>("ListenUrl")!.Text = "invalid-address";
             window.Control<Button>("SaveConnectionButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.Equal("tcp://127.0.0.1:5181", saved.ListenUrl);

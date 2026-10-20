@@ -295,6 +295,7 @@ public sealed partial class ServerWindow : Window
 #endif
         ListenUrl = _listenUrl.Text?.Trim() ?? string.Empty,
         Token = _token.Text ?? string.Empty,
+        AllowTakeover = View<ToggleSwitch>("AllowTakeover").IsChecked == true,
         StartWithWindows = _startWithWindows.IsChecked == true,
         AutoListenOnLaunch = _autoListenOnLaunch.IsChecked == true,
         StartMinimizedToTray = _startMinimizedToTray.IsChecked == true,
@@ -388,6 +389,7 @@ public sealed partial class ServerWindow : Window
 #endif
         _listenUrl.Text = UpgradeLegacyListenAddress(settings.ListenUrl);
         _token.Text = settings.Token;
+        View<ToggleSwitch>("AllowTakeover").IsChecked = settings.AllowTakeover;
         SetLaunchPreferences(settings.StartWithWindows, settings.AutoListenOnLaunch, settings.StartMinimizedToTray);
     }
 
@@ -467,6 +469,7 @@ public sealed partial class ServerWindow : Window
         View<Button>("RefreshEndpointsButton").IsEnabled = !running && !_busy && !_refreshingMidi;
         _listenUrl.IsEnabled = editable;
         _token.IsEnabled = editable;
+        View<ToggleSwitch>("AllowTakeover").IsEnabled = editable;
         View<Button>("SaveConnectionButton").IsEnabled = editable;
         _startWithWindows.IsEnabled = _autoListenOnLaunch.IsEnabled = _startMinimizedToTray.IsEnabled = _midiReady && !_refreshingMidi;
         View<TextBlock>("ConnectionEditHelp").Text = running

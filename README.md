@@ -41,6 +41,22 @@ closes or either MIDI pump fails. TCP uses `TCP_NODELAY` and keep-alive for
 responsive control traffic. The computer-to-computer connection uses TCP.
 The macOS client uses a local RTP-MIDI connection to Apple's network MIDI driver.
 
+## Optional connection takeover
+
+In the server's **Settings → Connection**, enable **Allow takeover**, save, then
+start the server. This is off by default. When another authenticated client tries
+to connect to an occupied server, that incoming client asks **Take over server
+connection?** Choosing **Take over** disconnects the existing client and connects
+the new one after the server releases its MIDI endpoint. Choosing **Cancel** or
+closing the prompt leaves the existing connection running.
+
+The displaced client pauses instead of automatically reclaiming the connection.
+Choose **Disconnect**, then **Connect** to request access again. A server with
+takeover disabled reports that it is busy and keeps the current client connected.
+Both ends need updated applications for the takeover prompt and pause behaviour.
+Older clients can still connect normally; updated clients also connect to older
+servers using the original protocol, without takeover support.
+
 ## Requirements
 
 For published binaries:

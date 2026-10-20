@@ -76,6 +76,8 @@ public sealed class App : Application
         ? new(TrayConnectionState.Inactive, "Disconnected")
         : service.IsConnected
             ? new(TrayConnectionState.Active, "Connected")
+            : service.IsPaused
+                ? new(TrayConnectionState.Inactive, "Paused")
             : new(TrayConnectionState.Connecting, service.ConnectionStatus);
 
     private async Task QuitCoreAsync()

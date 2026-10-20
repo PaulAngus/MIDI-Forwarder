@@ -19,6 +19,8 @@ public sealed record ServerSettings
 
     public string Token { get; init; } = string.Empty;
 
+    public bool AllowTakeover { get; init; }
+
     public bool StartWithWindows { get; init; }
 
     public bool AutoListenOnLaunch { get; init; }

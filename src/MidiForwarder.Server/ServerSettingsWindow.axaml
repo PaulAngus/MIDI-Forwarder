@@ -40,6 +40,15 @@
                 <TextBlock Text="Shared token" />
                 <TextBox Name="Token" PasswordChar="●" AutomationProperties.Name="Shared token" />
               </StackPanel>
+              <Border Classes="settingCard">
+                <Grid ColumnDefinitions="*,Auto">
+                  <StackPanel Spacing="4" Margin="0,0,16,0">
+                    <TextBlock Text="Allow takeover" FontWeight="Medium" />
+                    <TextBlock Text="Let another client with the shared token replace the connected client after confirming takeover." Classes="secondary" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <ToggleSwitch Name="AllowTakeover" Grid.Column="1" OffContent="" OnContent="" VerticalAlignment="Center" AutomationProperties.Name="Allow takeover" />
+                </Grid>
+              </Border>
             </StackPanel>
           </StackPanel>
         </ScrollViewer>

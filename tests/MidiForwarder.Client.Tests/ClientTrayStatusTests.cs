@@ -45,6 +45,7 @@ public sealed class ClientTrayStatusTests
             listener.Start();
             using TcpClient peer = await listener.AcceptTcpClientAsync(timeout.Token);
             Assert.True(await TcpAuthentication.ReceiveAndValidateAsync(peer.GetStream(), settings.Token, timeout.Token));
+            await TcpSession.WriteStatusAsync(peer.GetStream(), TcpSessionStatus.Connected, timeout.Token);
             await WaitForTooltipAsync(tray, "MIDI Forwarder Client: Connected", timeout.Token);
             Assert.Equal(TrayConnectionState.Active, App.GetTrayStatus(service).State);
             WindowIcon? connected = tray.Icon;
@@ -58,6 +59,7 @@ public sealed class ClientTrayStatusTests
 
             using TcpClient nextPeer = await listener.AcceptTcpClientAsync(timeout.Token);
             Assert.True(await TcpAuthentication.ReceiveAndValidateAsync(nextPeer.GetStream(), settings.Token, timeout.Token));
+            await TcpSession.WriteStatusAsync(nextPeer.GetStream(), TcpSessionStatus.Connected, timeout.Token);
             await WaitForTooltipAsync(tray, "MIDI Forwarder Client: Connected", timeout.Token);
             Assert.Same(connected, tray.Icon);
 

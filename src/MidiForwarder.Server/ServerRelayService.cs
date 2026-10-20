@@ -13,20 +13,25 @@ namespace MidiForwarder.Server;
 public sealed class ServerRelayService : IAsyncDisposable
 {
     private readonly Func<ServerSettings, bool> _midiPortsAvailable;
+    private readonly Func<ServerSettings, IMidiDuplexPort> _openMidi;
     private readonly SemaphoreSlim _clientGate = new(1, 1);
+    private readonly SemaphoreSlim _connectionSlots = new(16, 16);
+    private readonly List<Task> _connections = [];
+    private ClientSession? _activeSession;
     private CancellationTokenSource? _cancellation;
     private TcpListener? _listener;
-    private Task? _clientTask;
     private Task? _runTask;
 
     public ServerRelayService() : this(AreMidiPortsAvailable)
     {
     }
 
-    internal ServerRelayService(Func<ServerSettings, bool> midiPortsAvailable)
+    internal ServerRelayService(Func<ServerSettings, bool> midiPortsAvailable,
+        Func<ServerSettings, IMidiDuplexPort>? openMidi = null)
     {
         ArgumentNullException.ThrowIfNull(midiPortsAvailable);
         _midiPortsAvailable = midiPortsAvailable;
+        _openMidi = openMidi ?? OpenMidi;
     }
 
     public event EventHandler<string>? LogMessage;
@@ -106,17 +111,10 @@ public sealed class ServerRelayService : IAsyncDisposable
                 }
             }
 
-            Task? clientTask = Interlocked.Exchange(ref _clientTask, null);
-            if (clientTask is not null)
-            {
-                try
-                {
-                    await clientTask.ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
-                {
-                }
-            }
+            await Task.WhenAll(_connections).ConfigureAwait(false);
+            _connections.Clear();
+            _activeSession?.Cancellation.Dispose();
+            _activeSession = null;
 
             cancellation.Dispose();
         }
@@ -129,6 +127,7 @@ public sealed class ServerRelayService : IAsyncDisposable
         await StopAsync().ConfigureAwait(false);
         await Capture.DisposeAsync().ConfigureAwait(false);
         _clientGate.Dispose();
+        _connectionSlots.Dispose();
     }
 
     private async Task AcceptClientsAsync(
@@ -139,13 +138,15 @@ public sealed class ServerRelayService : IAsyncDisposable
         while (!cancellationToken.IsCancellationRequested)
         {
             TcpClient client = await listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
-            if (!await _clientGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+            // Once accepted, HandleClientAsync owns cleanup even if shutdown has just begun.
+            if (!await _connectionSlots.WaitAsync(0, CancellationToken.None).ConfigureAwait(false))
             {
                 client.Dispose();
                 continue;
             }
 
-            _clientTask = HandleClientAsync(client, settings, cancellationToken);
+            _connections.RemoveAll(task => task.IsCompleted);
+            _connections.Add(HandleClientAsync(client, settings, cancellationToken));
         }
     }
 
@@ -156,11 +157,10 @@ public sealed class ServerRelayService : IAsyncDisposable
     {
         using (client)
         {
-#if MACOS
-        IMidiDuplexPort? midi = null;
-#else
             IMidiDuplexPort? midi = null;
-#endif
+            ClientSession? session = null;
+            bool negotiateSession = false;
+            bool acknowledged = false;
             try
             {
                 client.NoDelay = true;
@@ -168,40 +168,99 @@ public sealed class ServerRelayService : IAsyncDisposable
                 NetworkStream stream = client.GetStream();
                 using var authenticationTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 authenticationTimeout.CancelAfter(TimeSpan.FromSeconds(5));
-                bool authorized = await TcpAuthentication.ReceiveAndValidateAsync(
+                (bool authorized, negotiateSession) = await TcpAuthentication.ReceiveRequestAsync(
                     stream,
                     settings.Token,
                     authenticationTimeout.Token).ConfigureAwait(false);
                 if (!authorized)
                 {
-                    LastConnectionError = "Client authentication failed. Check that both ends use the same shared token.";
+                    if (ConnectedClient is null)
+                    {
+                        LastConnectionError = "Client authentication failed. Check that both ends use the same shared token.";
+                    }
                     WriteLog("Rejected a client with an invalid token or protocol.");
+                    if (negotiateSession)
+                    {
+                        await TcpSession.WriteStatusAsync(stream, TcpSessionStatus.Unauthorized, authenticationTimeout.Token).ConfigureAwait(false);
+                    }
                     return;
+                }
+
+                // Never hold the admission gate while the incoming user considers the prompt.
+                ClientSession? offeredSession;
+                await _clientGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    offeredSession = _activeSession is { Completion.Task.IsCompleted: false } ? _activeSession : null;
+                    if (offeredSession is null)
+                    {
+                        _activeSession?.Cancellation.Dispose();
+                        session = new ClientSession(cancellationToken);
+                        _activeSession = session;
+                    }
+                }
+                finally { _clientGate.Release(); }
+
+                if (session is null)
+                {
+                    if (!negotiateSession) { return; }
+                    using var decisionTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    decisionTimeout.CancelAfter(TimeSpan.FromMinutes(2));
+                    await TcpSession.WriteStatusAsync(stream,
+                        settings.AllowTakeover ? TcpSessionStatus.TakeoverAvailable : TcpSessionStatus.Busy,
+                        decisionTimeout.Token).ConfigureAwait(false);
+                    if (!settings.AllowTakeover
+                        || !await TcpSession.ReadDecisionAsync(stream, decisionTimeout.Token).ConfigureAwait(false)) { return; }
+
+                    await _clientGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    try
+                    {
+                        ClientSession? current = _activeSession;
+                        if (current is not null && !current.Completion.Task.IsCompleted)
+                        {
+                            if (!ReferenceEquals(current, offeredSession))
+                            {
+                                await TcpSession.WriteStatusAsync(stream, TcpSessionStatus.ConnectionChanged, decisionTimeout.Token).ConfigureAwait(false);
+                                return;
+                            }
+                            WriteLog("An authenticated client confirmed takeover; releasing the previous connection.");
+                            current.Replaced = true;
+                            await current.Cancellation.CancelAsync().ConfigureAwait(false);
+                            // The previous bridge and MIDI port must fully close before reopening exclusive drivers.
+                            await current.Completion.Task.ConfigureAwait(false);
+                        }
+                        cancellationToken.ThrowIfCancellationRequested();
+                        current?.Cancellation.Dispose();
+                        session = new ClientSession(cancellationToken);
+                        _activeSession = session;
+                    }
+                    finally { _clientGate.Release(); }
                 }
 
                 WriteLog($"Client connected: {client.Client.RemoteEndPoint}");
                 SetStatus("Client authenticated; opening MIDI endpoint");
 
                 // Release hardware between connections, including exclusive WinMM drivers.
-#if MACOS
-                midi = PhysicalMidiEndpointDuplexPort.Open(settings.MidiEndpoint);
-#else
-                midi = WindowsMidiBackend.OpenPhysical(settings.MidiEndpoint, settings.EffectiveMidiInput, settings.EffectiveMidiOutput);
-#endif
+                midi = _openMidi(settings);
                 WriteLog($"MIDI input: {midi.InputName}; output: {midi.OutputName}");
                 Traffic.Reset();
                 LastConnectionError = null;
                 ConnectedClient = client.Client.RemoteEndPoint?.ToString() ?? "Network client";
+                if (negotiateSession)
+                {
+                    await TcpSession.WriteStatusAsync(stream, TcpSessionStatus.Connected, session.Cancellation.Token).ConfigureAwait(false);
+                }
+                acknowledged = true;
                 SetStatus("Client connected; MIDI endpoint open");
-                await TcpMidiBridge.RunAsync(stream, midi, WriteLog, cancellationToken, Traffic, Capture).ConfigureAwait(false);
+                await TcpMidiBridge.RunAsync(stream, midi, WriteLog, session.Cancellation.Token, Traffic, Capture).ConfigureAwait(false);
                 WriteLog("Client disconnected.");
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested || session?.Replaced == true)
             {
             }
             catch (OperationCanceledException error)
             {
-                LastConnectionError = error.Message;
+                if (session is not null || ConnectedClient is null) { LastConnectionError = error.Message; }
                 WriteLog($"Client connection ended: {error.Message}");
             }
             catch (Exception error) when (error is IOException or SocketException or EndOfStreamException or InvalidOperationException or NotSupportedException
@@ -210,26 +269,59 @@ public sealed class ServerRelayService : IAsyncDisposable
 #endif
                 )
             {
-                LastConnectionError = error.Message;
+                if (session is not null || ConnectedClient is null) { LastConnectionError = error.Message; }
                 WriteLog($"Client connection ended: {error.Message}");
             }
             finally
             {
-                ConnectedClient = null;
-                if (midi is not null)
+                try
                 {
-                    await midi.DisposeAsync().ConfigureAwait(false);
-                    WriteLog("MIDI endpoint connection released.");
+                    if (session is not null)
+                    {
+                        ConnectedClient = null;
+                        if (midi is not null)
+                        {
+                            await midi.DisposeAsync().ConfigureAwait(false);
+                            WriteLog("MIDI endpoint connection released.");
+                        }
+                        if (negotiateSession && !cancellationToken.IsCancellationRequested
+                            && (session.Replaced || !acknowledged))
+                        {
+                            // Both bridge pumps have stopped, so this cannot interleave with a MIDI frame.
+                            using var noticeTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                            try
+                            {
+                                await TcpSession.WriteStatusAsync(client.GetStream(),
+                                    session.Replaced ? TcpSessionStatus.Replaced : TcpSessionStatus.Unavailable,
+                                    noticeTimeout.Token).ConfigureAwait(false);
+                            }
+                            catch (Exception error) when (error is IOException or SocketException or OperationCanceledException) { }
+                        }
+                        if (IsRunning) { SetStatus($"Listening on {settings.ListenUrl}; waiting for a client"); }
+                    }
                 }
-
-                _clientGate.Release();
-                if (IsRunning)
+                finally
                 {
-                    SetStatus($"Listening on {settings.ListenUrl}; waiting for a client");
+                    session?.Completion.TrySetResult();
+                    _connectionSlots.Release();
                 }
             }
         }
     }
+
+    private sealed class ClientSession(CancellationToken cancellationToken)
+    {
+        public CancellationTokenSource Cancellation { get; } = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        public TaskCompletionSource Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool Replaced { get; set; }
+    }
+
+    private static IMidiDuplexPort OpenMidi(ServerSettings settings) =>
+#if MACOS
+        PhysicalMidiEndpointDuplexPort.Open(settings.MidiEndpoint);
+#else
+        WindowsMidiBackend.OpenPhysical(settings.MidiEndpoint, settings.EffectiveMidiInput, settings.EffectiveMidiOutput);
+#endif
 
     internal void ValidateSettings(ServerSettings settings, bool requireAvailableMidi = true)
     {

@@ -29,6 +29,7 @@ public sealed class ClientRelayServiceTests
         await service.StartAsync(settings);
         using TcpClient peer = await listener.AcceptTcpClientAsync(timeout.Token);
         Assert.True(await TcpAuthentication.ReceiveAndValidateAsync(peer.GetStream(), settings.Token, timeout.Token));
+        await TcpSession.WriteStatusAsync(peer.GetStream(), TcpSessionStatus.Connected, timeout.Token);
         ConnectionObservation connected = await WaitForStateAsync(states.Reader, "Connected", timeout.Token);
         Assert.True(connected.Connected);
 
@@ -56,6 +57,7 @@ public sealed class ClientRelayServiceTests
 
         using TcpClient nextPeer = await listener.AcceptTcpClientAsync(timeout.Token);
         Assert.True(await TcpAuthentication.ReceiveAndValidateAsync(nextPeer.GetStream(), settings.Token, timeout.Token));
+        await TcpSession.WriteStatusAsync(nextPeer.GetStream(), TcpSessionStatus.Connected, timeout.Token);
         ConnectionObservation reconnected = await WaitForStateAsync(states.Reader, "Connected", timeout.Token);
         Assert.True(reconnected.Connected);
         Assert.Equal(default, reconnected.Traffic);

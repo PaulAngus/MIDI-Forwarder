@@ -108,6 +108,7 @@ public sealed partial class ClientWindow : Window
         View<Button>("QuitButton").Click += (_, _) => QuitRequested?.Invoke(this, EventArgs.Empty);
         _service.LogMessage += OnLogMessage;
         _service.StatusChanged += OnStatusChanged;
+        _service.ConfirmTakeoverAsync = ConfirmTakeoverAsync;
         _activityTimer.Tick += (_, _) => RefreshPresentation();
         PropertyChanged += (_, args) =>
         {
@@ -484,6 +485,58 @@ public sealed partial class ClientWindow : Window
 
     private void OnStatusChanged(object? sender, string status) => Dispatcher.UIThread.Post(RefreshPresentation);
 
+    private async Task<bool> ConfirmTakeoverAsync(CancellationToken cancellationToken)
+    {
+        return await Dispatcher.UIThread.InvokeAsync(() => ShowTakeoverDialogAsync(cancellationToken));
+    }
+
+    internal async Task<bool> ShowTakeoverDialogAsync(CancellationToken cancellationToken)
+    {
+        if (_closed || cancellationToken.IsCancellationRequested) { return false; }
+        ShowMainWindow();
+        var dialog = new Window
+        {
+            Name = "TakeoverDialog",
+            Title = "Take over server connection?",
+            Width = 440,
+            SizeToContent = SizeToContent.Height,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            RequestedThemeVariant = RequestedThemeVariant,
+            FontSize = 14,
+            Icon = Icon,
+        };
+        dialog.Styles.Add(new Avalonia.Markup.Xaml.Styling.StyleInclude((Uri?)null)
+        {
+            Source = new Uri("avares://MidiForwarder.Client/Assets/FluentUtilityStyles.axaml"),
+        });
+        dialog.Bind(BackgroundProperty, new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("WindowBrush"));
+        dialog.Bind(ForegroundProperty, new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("TextBrush"));
+        var cancel = new Button { Name = "CancelTakeoverButton", Content = "Cancel", IsCancel = true };
+        var takeOver = new Button { Name = "ConfirmTakeoverButton", Content = "Take over" };
+        takeOver.Classes.Add("accent");
+        cancel.Click += (_, _) => dialog.Close(false);
+        takeOver.Click += (_, _) => dialog.Close(true);
+        dialog.Content = new StackPanel
+        {
+            Margin = new Thickness(24), Spacing = 20,
+            Children =
+            {
+                new TextBlock { Text = "Take over server connection?", FontSize = 20, FontWeight = Avalonia.Media.FontWeight.Medium, TextWrapping = Avalonia.Media.TextWrapping.Wrap },
+                new TextBlock
+                {
+                    Text = $"The server at {_savedSettings?.ServerUri ?? _serverUri.Text} already has a connected client. Taking over will disconnect that client and connect this one.",
+                    TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                },
+                new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8, Children = { cancel, takeOver } },
+            },
+        };
+        Task<bool> result = dialog.ShowDialog<bool>(this);
+        cancel.Focus();
+        using var registration = cancellationToken.Register(() => Dispatcher.UIThread.Post(() => dialog.Close(false)));
+        return await result.ConfigureAwait(true);
+    }
+
     private void ReportStartFailure(string prefix, Exception error, int page = 0)
     {
         AppendLog($"{prefix}: {error.Message}");
@@ -500,7 +553,7 @@ public sealed partial class ClientWindow : Window
         bool running = _service.IsRunning;
         bool connected = running && _service.IsConnected;
         string? error = _startFailure ?? _midiDiscoveryError ?? (running ? _service.LastConnectionError : null);
-        _status.Text = _startFailure is not null || _midiDiscoveryError is not null ? "Attention" : connected ? "Connected" : !running ? "Disconnected"
+        _status.Text = _startFailure is not null || _midiDiscoveryError is not null ? "Attention" : connected ? "Connected" : _service.IsPaused ? "Paused" : !running ? "Disconnected"
             : _service.ConnectionStatus.StartsWith("Reconnecting", StringComparison.Ordinal) ? "Reconnecting"
             : _service.ConnectionStatus == "Waiting for Apple MIDI" ? "Waiting for MIDI" : "Connecting";
         Border pill = View<Border>("StatusPill");
@@ -601,6 +654,7 @@ public sealed partial class ClientWindow : Window
         _activityTimer.Stop();
         _service.LogMessage -= OnLogMessage;
         _service.StatusChanged -= OnStatusChanged;
+        _service.ConfirmTakeoverAsync = null;
     }
 
     private void OnClosing(object? sender, WindowClosingEventArgs args)

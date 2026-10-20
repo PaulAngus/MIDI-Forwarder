@@ -40,6 +40,10 @@ public sealed class ClientRelayService : IAsyncDisposable
 
     public bool IsConnected { get; private set; }
 
+    public bool IsPaused { get; private set; }
+
+    public Func<CancellationToken, Task<bool>>? ConfirmTakeoverAsync { get; set; }
+
     public string ConnectionStatus { get; private set; } = "Stopped";
 
     public string? LastConnectionError { get; private set; }
@@ -83,6 +87,7 @@ public sealed class ClientRelayService : IAsyncDisposable
         _cancellation = cancellation;
         Traffic.Reset();
         LastConnectionError = null;
+        IsPaused = false;
         SetStatus("Connecting");
         _runTask = RunReconnectLoopAsync(serverUri, settings.Token, midi, cancellation.Token);
         return Task.CompletedTask;
@@ -91,6 +96,7 @@ public sealed class ClientRelayService : IAsyncDisposable
     public async Task StopAsync()
     {
         IsConnected = false;
+        IsPaused = false;
         CancellationTokenSource? cancellation = Interlocked.Exchange(ref _cancellation, null);
         Task? runTask = Interlocked.Exchange(ref _runTask, null);
         IMidiDuplexPort? midi = Interlocked.Exchange(ref _midi, null);
@@ -138,6 +144,8 @@ public sealed class ClientRelayService : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         int retrySeconds = 1;
+        bool legacyServer = false;
+        bool connectedBefore = false;
 #if MACOS
         CoreMidiNetworkPort? networkMidi = _networkMidi;
 #endif
@@ -162,11 +170,65 @@ public sealed class ClientRelayService : IAsyncDisposable
                 await client.ConnectAsync(serverUri.Host, serverUri.Port, cancellationToken).ConfigureAwait(false);
                 client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
                 NetworkStream stream = client.GetStream();
-                await TcpAuthentication.SendAsync(stream, token, cancellationToken).ConfigureAwait(false);
+                await TcpAuthentication.SendAsync(stream, token, !legacyServer, cancellationToken).ConfigureAwait(false);
+                if (!legacyServer)
+                {
+                    TcpSessionStatus response;
+                    using var handshakeTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    handshakeTimeout.CancelAfter(TimeSpan.FromSeconds(10));
+                    try
+                    {
+                        response = await TcpSession.ReadStatusAsync(stream, handshakeTimeout.Token).ConfigureAwait(false);
+                    }
+                    catch (IOException)
+                    {
+                        // Original servers only understand MIDIFWD1 and close the newer handshake.
+                        legacyServer = true;
+                        WriteLog("Retrying with the original server protocol; takeover is unavailable on older servers.");
+                        continue;
+                    }
+                    if (response == TcpSessionStatus.TakeoverAvailable)
+                    {
+                        handshakeTimeout.CancelAfter(Timeout.InfiniteTimeSpan);
+                        if (connectedBefore)
+                        {
+                            await TcpSession.SendDecisionAsync(stream, false, cancellationToken).ConfigureAwait(false);
+                            Pause("The server is now connected to another client. Disconnect and connect again to request access.");
+                            break;
+                        }
+                        SetStatus("Awaiting takeover confirmation");
+                        using var decisionTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                        decisionTimeout.CancelAfter(TimeSpan.FromSeconds(110));
+                        bool confirmed = ConfirmTakeoverAsync is not null
+                            && await ConfirmTakeoverAsync(decisionTimeout.Token).WaitAsync(decisionTimeout.Token).ConfigureAwait(false);
+                        await TcpSession.SendDecisionAsync(stream, confirmed, decisionTimeout.Token).ConfigureAwait(false);
+                        if (!confirmed)
+                        {
+                            Pause("Takeover cancelled. Disconnect and connect again to request access.");
+                            break;
+                        }
+                        handshakeTimeout.CancelAfter(TimeSpan.FromSeconds(10));
+                        response = await TcpSession.ReadStatusAsync(stream, handshakeTimeout.Token).ConfigureAwait(false);
+                    }
+                    if (response is TcpSessionStatus.Busy or TcpSessionStatus.ConnectionChanged)
+                    {
+                        Pause(response == TcpSessionStatus.Busy
+                            ? "The server already has a client and does not allow takeover. Disconnect and connect again to retry."
+                            : "The connected client changed while you were confirming. Disconnect and connect again to request access.");
+                        break;
+                    }
+                    if (response != TcpSessionStatus.Connected)
+                    {
+                        throw new IOException(response == TcpSessionStatus.Unauthorized
+                            ? "Client authentication failed. Check that both ends use the same shared token."
+                            : "The server could not open its MIDI endpoint. Check the server settings.");
+                    }
+                }
                 retrySeconds = 1;
                 Traffic.Reset();
                 LastConnectionError = null;
                 IsConnected = true;
+                connectedBefore = true;
                 SetStatus("Connected");
                 WriteLog("Connected to server using low-latency TCP (TCP_NODELAY).");
                 await TcpMidiBridge.RunAsync(stream, connectionMidi, WriteLog, cancellationToken, Traffic, Capture).ConfigureAwait(false);
@@ -178,6 +240,16 @@ public sealed class ClientRelayService : IAsyncDisposable
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
+                break;
+            }
+            catch (TcpSessionEndedException error)
+            {
+                Pause(error.Message);
+                break;
+            }
+            catch (OperationCanceledException)
+            {
+                Pause("The connection or takeover confirmation timed out. Disconnect and connect again to retry.");
                 break;
             }
             catch (Exception error) when (error is SocketException or IOException
@@ -208,6 +280,15 @@ public sealed class ClientRelayService : IAsyncDisposable
     }
 
     private void WriteLog(string message) => LogMessage?.Invoke(this, message);
+
+    private void Pause(string message)
+    {
+        IsConnected = false;
+        IsPaused = true;
+        LastConnectionError = message;
+        SetStatus("Paused");
+        WriteLog(message);
+    }
 
     private void SetStatus(string status)
     {
