@@ -479,6 +479,10 @@ server/client status logs before changing the token or port assignment.
 
 ## License and notices
 
+MIDI Forwarder, including its Client and Server applications, is licensed under
+the [Apache License, Version 2.0](LICENSE). Third-party components retain their
+respective licences.
+
 See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the dependency and
 license summary. The Windows MIDI Services package is a preview dependency;
 its distribution terms should be checked independently before redistribution.
