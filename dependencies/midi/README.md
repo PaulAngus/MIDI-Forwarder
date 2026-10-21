@@ -14,10 +14,14 @@ Existing application-specific extraction remains supported. The explicit
 `MBU_MIDI_API_DIRECTORY` diagnostic override is optional and must point at a
 complete compatible API if set. Ordinary users should leave it unset.
 
-Windows 10/11 hardware MIDI uses the OS WinMM path where the current service is
-unavailable. Virtual MIDI presentation is unsupported on Windows 10. Windows 11
-virtual interfaces additionally require compatible OS MIDI Services and loopback
-transport; embedding the API does not install or upgrade those OS components.
+Windows 10/11 hardware MIDI uses the legacy Windows MIDI path where the current
+service is unavailable. On Windows 10, the existing public Client also opens two
+manually created loopMIDI cables; see [the Client setup](../../README.md#loopmidi-cables-on-windows-10)
+for cable names, directions and Preset Sender selections. Keep loopMIDI running
+under the same Windows account. The Server opens its selected hardware ports
+directly. No teVirtualMIDI SDK or private build is needed. Automatic virtual
+interfaces require compatible Windows 11 MIDI Services and loopback transport;
+embedding the API does not install or upgrade those OS components.
 
 The macOS packages carry DryWetMIDI's universal native library and RtMidi's arm64
 library. RtMidi bulk relay is used by Forwarder (Apple Silicon); Maestro and

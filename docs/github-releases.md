@@ -93,7 +93,9 @@ to silently replace released files. Download the assets, check their hashes,
 extract them, and run the required first-launch, settings, discovery, virtual
 interface and two-way communication tests before publishing the draft. Record
 missing clean-machine coverage; VM packaging checks do not qualify real devices.
-Keep Windows 10's lack of native virtual MIDI presentation explicit.
+Keep Windows 10's manual [loopMIDI cable setup](../README.md#loopmidi-cables-on-windows-10)
+distinct from automatic Windows 11 MIDI Services ports. Record Windows 10
+workflow qualification separately from source and package inspection.
 GitHub's automatic source ZIPs are not application downloads.
 
 ## Credentials

@@ -13,13 +13,13 @@ codec or same-host relay pass does not establish packaged two-machine operation.
 
 Current source release: [1.0.2](docs/releases/1.0.2.md).
 
-Supported platforms: **Windows 10 and Windows 11 (x64)** and **macOS 26 and 27 (Apple Silicon)**. Virtual MIDI presentation is not supported on Windows 10.
+Supported platforms: **Windows 10 and Windows 11 (x64)** and **macOS 26 and 27 (Apple Silicon)**. On Windows 10, the Client uses [manually created loopMIDI cables](#loopmidi-cables-on-windows-10); automatic port creation requires eligible Windows 11 MIDI Services.
 
 Shared MIDI implementation: see [dependency and setup notes](dependencies/midi/README.md). Current and legacy backends come from the `MightBeUseful.Midi` packages maintained in [MIDIHelperLibrary](https://github.com/PaulAngus/MIDIHelperLibrary); earlier implementation/package details below describe the pre-migration builds.
 
 Both Client and Server use the **DIN Send** socket-and-arrow logo in their app headers, window/tray icons and published Windows/macOS application icons. Branding exports and verification notes are in [Branding](Branding/README.md).
 
-MIDI Forwarder makes a physical MIDI interface connected to a Windows 11 PC or Mac
+MIDI Forwarder makes a physical MIDI interface connected to a supported Windows PC or Mac
 available to an ordinary MIDI application on another supported computer. The local
 application sees a normal named MIDI input and output; it does not need to
 know that the device is remote.
@@ -35,7 +35,8 @@ Run the two desktop applications as a pair:
 - **Server** runs beside the physical MIDI hardware. It opens an existing Windows
   MIDI Services, WinMM or CoreMIDI hardware connection and listens for a client.
 - **Client** runs beside the MIDI application. It uses Windows MIDI Services
-  automatic ports or Apple's network MIDI driver, then connects to the server over TCP.
+  automatic ports, existing loopMIDI cables on Windows 10, or Apple's network MIDI
+  driver, then connects to the server over TCP.
 
 ```text
 MIDI application
@@ -81,10 +82,13 @@ For published binaries:
 - **macOS 26 and 27, Apple Silicon (arm64).** The Client's recommended workflow
   uses a user-configured Apple network MIDI session; see [Mac setup](#apple-silicon-builds).
 
-Windows 10 supports the existing hardware MIDI path through WinMM. Virtual MIDI
-presentation is not supported there; no loopMIDI installation is a prerequisite
-for hardware use. Earlier Windows 11 builds also retain the WinMM hardware path.
-Automatic virtual interfaces require the OS service/transport described above.
+Windows 10 supports the existing hardware MIDI path through WinMM and the Client's
+manual virtual-cable path. For the Client, run loopMIDI and create two cables as
+described in [Windows 10 setup](#loopmidi-cables-on-windows-10). Direct hardware
+use on the Server needs no loopMIDI. Earlier Windows 11 builds also retain the
+legacy hardware/manual-cable paths. Automatic virtual interfaces require the OS
+service/transport described above. Windows 10 never extracts or loads the bundled
+Microsoft MIDI Services API.
 The current shared provider also embeds the required Visual C++ runtime files;
 no separate Visual C++ Redistributable installation is required.
 
@@ -155,6 +159,64 @@ it is absent from those applications' input/output selectors.
 The client retries a dropped connection with
 bounded exponential backoff (1, 2, 4, … up to 30 seconds) while keeping the
 virtual endpoint alive.
+
+#### loopMIDI cables on Windows 10
+
+Use the existing public Windows builds with two manually created loopMIDI cables.
+No teVirtualMIDI SDK, SDK integration or separate private build is needed. This
+setup also applies when the Windows 11 Client uses its legacy MIDI backend.
+
+1. Start [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html) on the
+   computer running **Client** and the local MIDI application (install it first
+   if needed). Run both applications under the same Windows user account.
+2. In loopMIDI, enter `To MIDI Forwarder` in **New port-name** and click **+**.
+   Repeat for `From MIDI Forwarder`. Each cable appears as an input and an output;
+   a message sent to its output reaches applications listening to its input.
+3. Start `MidiForwarder.Client.exe`, open **Settings → Connection**, and click
+   **Refresh MIDI ports**. Set **From MIDI app (input)** to `To MIDI Forwarder`
+   and **To MIDI app (output)** to `From MIDI Forwarder`.
+4. Enter the Server's **Server TCP address**, for example
+   `tcp://192.168.2.155:5180`, and exactly the same **Shared token** as on the
+   Server. Click **Save**, then **Connect**. Set up and start the Server as
+   described above; it opens the hardware ports directly and needs no loopMIDI
+   cables for that connection.
+5. In the local MIDI application, select `To MIDI Forwarder` as its **MIDI output**
+   and `From MIDI Forwarder` as its **MIDI input**. Save those selections in the
+   application.
+
+| Application | Setting | Cable |
+|---|---|---|
+| Forwarder Client | **From MIDI app (input)** | `To MIDI Forwarder` |
+| Forwarder Client | **To MIDI app (output)** | `From MIDI Forwarder` |
+| Local MIDI application / editor | MIDI **output** | `To MIDI Forwarder` |
+| Local MIDI application / editor | MIDI **input** | `From MIDI Forwarder` |
+
+The outgoing route is **MIDI app → To MIDI Forwarder → Client → TCP network →
+Server → hardware**. Replies return through **hardware → Server → TCP network →
+Client → From MIDI Forwarder → MIDI app**. Use two different cables; selecting
+one cable for both Client directions or echoing the return cable into the sending
+cable can create feedback.
+
+**With Preset Sender:** open Sender's **Configure → MIDI Connection**, click
+**Refresh Devices**, and select `To MIDI Forwarder` as **MIDI Out**. Leave
+**MIDI In** unselected for keyboard/keypad use. Set the output channel for the
+remote hardware, click **Connect**, then **Save**. Sender does not need the
+`From MIDI Forwarder` return cable, but the Client still requires both selections.
+No third cable is needed. See [Sender's Windows 10 setup](https://github.com/PaulAngus/Preset-Sender#windows-10-setup-with-loopmidi)
+for sending to a local app without Forwarder.
+
+**What "create once" means:** loopMIDI remembers the cable names and recreates
+them when it starts under the same Windows account. Enable autostart by
+right-clicking its tray icon. Closing loopMIDI's configuration window leaves it
+running in the tray; exiting it or signing out removes the ports. Keep loopMIDI
+running and start it before Client and the local MIDI application.
+
+Client retains the cable selections after **Save**. Each session, click
+**Connect**, or enable **Settings → Startup → Connect automatically on launch**.
+**Start with Windows** separately controls launching Client at sign-in. Enabling
+autostart does not guarantee startup order: if the cables were unavailable when
+Client opened, start loopMIDI, click **Refresh MIDI ports**, then connect again.
+Refresh or restart any MIDI application that cached an earlier port list.
 
 ## Configuration and lifecycle
 
@@ -284,8 +346,9 @@ both directions. It removes the test endpoints on normal completion and exits wi
 - `2` when the public port names or counts are incorrect;
 - `3` when the MIDI service does not complete the check within 30 seconds.
 
-The legacy virtual-cable diagnostic remains in existing binaries for historical
-compatibility. It is not part of the supported Windows 11 automatic-port setup.
+The legacy virtual-cable diagnostic uses existing cables rather than creating
+ports. Normal Windows 10 setup uses the [Client settings above](#loopmidi-cables-on-windows-10);
+running a native diagnostic is not a setup requirement.
 
 ## Full MIDI capture (1.0.3)
 
@@ -494,13 +557,20 @@ installed MIDI Services does not provide the required API/loopback transport.
 Check that Windows 11 is 25H2 or later and the compatible services, loopback
 transport are available; the application supplies the native API. Run `--midi-backend` to see why
 WinMM was selected and consult the [dependency setup notes](dependencies/midi/README.md).
-Windows 10 hardware MIDI is supported; virtual MIDI presentation is not.
+On Windows 10 this is expected: use the [two-cable loopMIDI setup](#loopmidi-cables-on-windows-10).
+
+**The Windows 10 Client or MIDI app cannot see its cables.** Start loopMIDI under
+the same Windows account, confirm both named cables exist, then click Client's
+**Settings → Connection → Refresh MIDI ports**. Refresh or restart the MIDI app
+if it only scans ports at startup. Keep loopMIDI running in the tray; the Client
+does not create or own these cables. Check the direction table above if messages
+do not reach the hardware or replies do not reach the MIDI app.
 
 **The client keeps reconnecting.** Check the server address, firewall rule,
 listener status, and token. The server log reports invalid-token/protocol
 rejections; the client status shows the next retry delay.
 
-**The application cannot see `MIDI Forwarder`.** Ensure the client is running
+**The application cannot see the automatically created Windows 11 `MIDI Forwarder` interface.** Ensure the client is running
 and connected or connecting, choose the configured interface name without a suffix,
 and restart the MIDI application's port enumeration if it cached the old list.
 If a crashed client left a stale endpoint, restart the Windows MIDI service or
