@@ -20,6 +20,7 @@ public sealed class App : Application
 
     public override void Initialize()
     {
+        Name = "MIDI Forwarder Server";
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {
             if (args.ExceptionObject is Exception error)

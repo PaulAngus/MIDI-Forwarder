@@ -19,6 +19,7 @@ public sealed class App : Application
 
     public override void Initialize()
     {
+        Name = "MIDI Forwarder Client";
         Styles.Add(new FluentTheme());
     }
 
