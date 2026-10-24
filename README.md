@@ -11,7 +11,7 @@ the physical Mac or included in offline profiles. Existing Forwarder sessions ma
 be used for separately authorized real-device preset-change acceptance. A native
 codec or same-host relay pass does not establish packaged two-machine operation.
 
-Current source release: [1.0.2](docs/releases/1.0.2.md).
+Current source version: [1.0.8](docs/releases/1.0.8.md).
 
 Supported platforms: **Windows 10 and Windows 11 (x64)** and **macOS 26 and 27 (Apple Silicon)**. On Windows 10, the Client uses [manually created loopMIDI cables](#loopmidi-cables-on-windows-10); automatic port creation requires eligible Windows 11 MIDI Services.
 

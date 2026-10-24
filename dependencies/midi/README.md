@@ -1,10 +1,10 @@
 # Pinned shared MIDI dependency
 
-The exact package family is **0.3.10** (`MidiVersion.props`, `version.txt` and
+The exact package family is **0.3.14** (`MidiVersion.props`, `version.txt` and
 `packages.sha256`). It is built from MIDIHelperLibrary and copied here as a
 build feed; no sibling checkout, user-profile API installation or global runtime
 is required by the published application. `source-manifest.json` records the
-library source identity. Other consumers retain their independently pinned versions.
+library source identity from clean committed source. `normal-publication.json` retains the original package identities. Other consumers retain their independently pinned versions.
 
 The Windows provider embeds Windows.Devices.Midi2 0.99.88-preview.10 DLL/PRI and
 the matching architecture's required Visual C++ runtime libraries. Eligible

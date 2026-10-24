@@ -18,7 +18,7 @@ $signing = @{ Sign = $Sign; SigningCertificateThumbprint = $SigningCertificateTh
 & (Join-Path $repoRoot 'Initialize-SharedMidi.ps1') -PrepareBuild
 foreach ($role in @('Client', 'Server')) {
     $project = Join-Path $repoRoot "src/MidiForwarder.$role/MidiForwarder.$role.csproj"
-    $build = Join-Path $repoRoot ('artifacts/publish-' + [guid]::NewGuid().ToString('N'))
+    $build = Join-Path ([IO.Path]::GetTempPath()) ('forwarder-publish-' + [guid]::NewGuid().ToString('N'))
     $output = Join-Path $repoRoot ('publish/' + $role.ToLowerInvariant())
     dotnet publish $project -c Release -r win-x64 --self-contained true --artifacts-path $build -o $output
     if ($LASTEXITCODE -ne 0) { throw "$role publish failed ($LASTEXITCODE)." }

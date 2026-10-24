@@ -1,0 +1,20 @@
+{
+  "version": "0.3.14",
+  "sourceCommit": "766111305e733c238ea0621c076cfad6bcbc0e1b",
+  "workingTreeClean": true,
+  "sourceManifestSha256": "a7fcff57c574924bcbc926986fcd8f321b6c9cbce70c209a8974951b02c61900",
+  "files": {
+    "MightBeUseful.Midi.0.3.14.nupkg": "a0275f9d9aa4645d3b543e1fb13e21db280a8f3414b2ce58a6b025a5def2d5ea",
+    "MightBeUseful.Midi.0.3.14.snupkg": "bfcb66707348620590e77b26abd660dcb0fa615d5989791c37fbf48b18d3da8d",
+    "MightBeUseful.Midi.CoreMidi.0.3.14.nupkg": "51dacc66b2a520df02ee8ab6cf6d5331b2d561ac0a1ed7b837a1cbb88f18ee31",
+    "MightBeUseful.Midi.CoreMidi.0.3.14.snupkg": "53dd547ec86b3cf762f0cc6b0decf1539f7aac3ae08ae30134b82b51d19e6135",
+    "MightBeUseful.Midi.Rtp.0.3.14.nupkg": "2738a2cf15ad0a4802cd81c9d5cfa0f6b5e79f39f7f8f2b29aa0aee5ba7b4ddc",
+    "MightBeUseful.Midi.Rtp.0.3.14.snupkg": "4a390168d20c92f2795225117f74b9affbd7c2e36e56aa52f8794cf4a31afa51",
+    "MightBeUseful.Midi.Windows.0.3.14.nupkg": "79f155167d57ada2b9b720a3d6dcaa0f1f795b0b34d4712a18a096ddd760dbce",
+    "MightBeUseful.Midi.Windows.0.3.14.snupkg": "230e7ca129db2a11347fe0f2a724be0a09063c9a249daa9de972cb4a3abdfbe7"
+  },
+  "buildDirectory": "C:\\Users\\paulg\\AppData\\Local\\Temp\\shared-midi-a0efeb38e2924995bedf5ad91af779d8",
+  "testsExecuted": false,
+  "releaseQualified": false,
+  "builtUtc": "2026-10-24T12:52:40.5900658Z"
+}
