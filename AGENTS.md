@@ -11,6 +11,8 @@
 
 ## Local builds, signing and tests
 
+- User instruction, 24 October 2026: use ad hoc signing for local Mac Forwarder publication and distribution until the application is explicitly being published to GitHub as a release. Do not select Developer ID signing or notarization for ordinary local alignment, and do not create a GitHub release implicitly.
+
 - Run builds, tests, signing and release packaging locally on the appropriate development machine.
 - GitHub Actions is disabled by the maintainer's choice. Do not add, enable, run or suggest GitHub Actions workflows.
 - Keep the existing local build, publish and test entry points. Use the README and release documentation for commands; GitHub is used for source control and release downloads.
